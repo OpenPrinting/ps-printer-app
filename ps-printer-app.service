@@ -1,0 +1,10 @@
+[Unit]
+Description=PostScript Printer Application
+
+[Service]
+ExecStart=ps-printer-app server
+ExecStop=ps-printer-app shutdown
+Type=simple
+
+[Install]
+WantedBy=multi-user.target
