@@ -115,9 +115,9 @@ This Printer Application is a working model for
 ## BUILDING AND INSTALLING
 
 NOTE: There is a bug in Ubuntu Groovy (20.10) that prevents it from
-building Snaps, see
-
-https://forum.snapcraft.io/t/build-fails-with-a-mksquashfs-error-cannot-pack-root-prime/
+building Snaps, see [this discussion on the Snapcraft
+forum](https://forum.snapcraft.io/t/build-fails-with-a-mksquashfs-error-cannot-pack-root-prime/). The
+problem is already solved but did not make it into Groovy yet.
 
 Any older Ubuntu version (like 20.04) should work.
 
@@ -197,19 +197,43 @@ ps-printer-app --help
 for more options, use the "--debug" info for verbose logging in your
 terminal window.
 
-You can also do a "quick-and-dirty" build wothout snapping. You need a directory with the latest GIT snapshot of PAPPL and the latest GIT snapshot of cups-filters (master branch). Both PAPPL and cups-filters need to be compiled (./cnfigure; make), installing not needed. Also install the header files of all needed libraries (installing "libcups2-dev" should do it).
+You can also do a "quick-and-dirty" build wothout snapping. You need a
+directory with the latest GIT snapshot of PAPPL and the latest GIT
+snapshot of cups-filters (master branch). Both PAPPL and cups-filters
+need to be compiled (./cnfigure; make), installing not needed. Also
+install the header files of all needed libraries (installing
+"libcups2-dev" should do it).
 
-In the directory with the attached ps-printer-app.c run the command line
+In the directory with the attached ps-printer-app.c run the command
+line
 
 ```
 gcc -o ps-printer-app ps-printer-app.c $PAPPL_SRC/pappl/libpappl.a $CUPS_FILTERS_SRC/.libs/libppd.a $CUPS_FILTERS_SRC/.libs/libcupsfilters.a -ldl -lpthread  -lppd -lcups -lavahi-common -lavahi-client -lgnutls -ljpeg -lpng16 -ltiff -lz -lm -lusb-1.0 -lpam -lqpdf -lstdc++ -I. -I$PAPPL_SRC/pappl -I$CUPS_FILTERS_SRC/ppd -I$CUPS_FILTERS_SRC/cupsfilters
 ```
 
-The run
+Then run
 
 ```
 ./ps-printer-app --help
 ```
+
+When running the non-snapped version, by default, PPD files are
+searched for in
+
+```
+/usr/share/ppd/
+/usr/lib/cups/driver/
+```
+
+You can set the `PPD_PATHS` environment variable to search other
+places instead:
+
+```
+PPD_PATHS=/path/to/my/ppds:/my/second/place ./ps-printer-app server
+```
+
+Simply put a colon-separated list of any amount of paths into the
+variable. Creating a wrapper script is recommended.
 
 
 ## LEGAL STUFF
