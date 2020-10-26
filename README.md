@@ -1,4 +1,4 @@
-#PostScript Printer Application
+# PostScript Printer Application
 
 This repository contains a Printer Application for PostScript printers
 that uses [PAPPL](https://www.msweet.org/pappl) to support IPP
@@ -43,7 +43,7 @@ This Printer Application is a working model for
   filterChain() filter function.
 
 
-##KNOWN ISSUES
+## KNOWN ISSUES
 
 - Only auto-detected USB printers work, if selecting a discovered
   nework printer you can set it up and configure its default settings
@@ -56,7 +56,7 @@ This Printer Application is a working model for
   Printer Application this is already corrected to "avahi-control".
 
 
-##TODO:
+## TODO:
 
 - Automatic start of the Printer Application as a daemon
 
@@ -84,7 +84,7 @@ This Printer Application is a working model for
   for HP printers.
 
 
-##BUILDING AND INSTALLING
+## BUILDING AND INSTALLING
 
 NOTE: There is a bug in Ubuntu Groovy (20.10) that prevents it from
 building Snaps, see
@@ -167,7 +167,7 @@ The run
 ```
 
 
-##Legal Stuff
+## LEGAL STUFF
 
 The PostScript Printer Application is Copyright © 2020 by Till Kamppeter.
 
