@@ -7,6 +7,9 @@ of [cups-filters 2.x](https://github.com/OpenPrinting/cups-filters) (filter
 functions in libcupsfilters, libppd). This work is derived from the
 [hp-printer-app](https://github.com/michaelrsweet/hp-printer-app).
 
+Your contrinbutions are welcome. Please post [issues and pull
+requests](https://github.com/OpenPrinting/ps-printer-app).
+
 This Printer Application is a working model for
 
 - A non-raster Printer Application: Destination format is PostScript,
@@ -35,15 +38,30 @@ This Printer Application is a working model for
   format, so "application/postscript" input is forced through the
   pstops() filter function.
 
-- To do not need to re-invent the code for forking so that we can pass
-  data through a sequence of filters, we create a filter function to
-  send the data off to the printer and form a chain of the actually
-  converting filter function (one of pstops(), pdftops(), imagetops(),
-  rastertops()) and the with this filter function using the
-  filterChain() filter function.
+- To do not need to re-invent the code for forking into sub-processes
+  so that we can pass data through a sequence of filters, we create a
+  filter function to send the data off to the printer and form a chain
+  of the actually converting filter function (one of pstops(),
+  pdftops(), imagetops(), rastertops()) and the with this filter
+  function using the filterChain() filter function.
+
+- The PostScript Printer Application has all PostScript PPD files of
+  the [foomatic-db](https://github.com/OpenPrinting/foomatic-db) and
+  [HPLIP](https://developers.hp.com/hp-linux-imaging-and-printing)
+  projects built-in, so most PostScript printer PPDs which usually
+  come with Linux Distributions. Note that some PPDs use certain CUPS
+  filters for extra functionality. These filters are not included. The
+  user can add additional PPDs without needing to rebuild the Snap.
 
 
 ## KNOWN ISSUES
+
+- Not all options of the PPD files are represented in the web
+  interface, only options with IPP representation are shown (and
+  supported in jobs). Of the unsupported options we at least insert
+  the PostScript code of the default value. At least changing defaults
+  of such options via the web interface is planned for a later
+  version.
 
 - Only auto-detected USB printers work, if selecting a discovered
   nework printer you can set it up and configure its default settings
@@ -63,25 +81,35 @@ This Printer Application is a working model for
 - Add printer auto-setup for all supported printers
 
 - Add driver named "auto" which selects the PPD automatically based on
-  device ID.
+  device ID
 
-- Correct locations for the state file and a log file
+- Change driver-naming to names which do not change when the PPD file
+  list changes
+
+- Correct locations for the state file, the log file, and user-added
+  PPD files
 
 - Access to PPD options not representable by IPP via the web
   interface, so that they can be set as printer default at least.
 
-- Add PPD files via web interface.
+- Add PPD files via web interface
 
 - If in a future version the PPD repository changed and an installed
   printer does not find its PPD any more on startup, let it fall back
-  to the "auto" driver so that it finds a new, suitable PPD.
+  to the "auto" driver so that it finds a new, suitable PPD
 
-- Build options for cups-filters, to build withour libqpdf and/or
+- Build options for cups-filters, to build without libqpdf and/or
   withour libppd, the former will allow to create the Snap of this
   Printer Application without downloading and building QPDF
 
 - Better way to download HPLIP for grabbing the PostScript PPD files
-  for HP printers.
+  for HP printers
+
+- Use [pyppd](https://github.com/OpenPrinting/pyppd) to compress the
+  built-in PPD repositories
+
+- In `ps-printer-app.c` many places are marked with `XXX`. These are
+  points to be improved.
 
 
 ## BUILDING AND INSTALLING
@@ -142,6 +170,23 @@ with
 ```
 ps-printer-app FILE
 ```
+
+You can also add PPD files without rebuilding the Snap. Do
+
+```
+sudo cp PPDFILE /var/snap/ps-printer-app/current/
+```
+
+`PPDFILE` cannot only be a single PPD file but any number of single
+PPD files, `.tar.gz` files containing PPDs (in arbitrary directory
+structure) and PPD-gemerating executables which are usually put into
+`/usr/lib/cups/driver`. You can also create arbitrary sub-directory
+structures in `/var/snap/ps-printer-app/current/` containing the
+mentioned types of files. Only make sure to not put any executables
+there which do something else than listing and generating PPD files.
+
+If you have a `ps-printer-app` server running you have to restart it
+to get your added PPD files visible in the list when adding a printer.
 
 See
 
