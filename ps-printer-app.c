@@ -183,7 +183,7 @@ ps_callback(
   driver_data->rendpage           = NULL;
   driver_data->rstartjob          = NULL;
   driver_data->rstartpage         = NULL;
-  driver_data->rwrite             = NULL;
+  driver_data->rwriteline         = NULL;
   driver_data->status             = ps_status;
   driver_data->testpage           = NULL; // XXX Add ps_testpage() function
   driver_data->format             = "application/vnd.printer-specific";
