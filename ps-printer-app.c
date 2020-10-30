@@ -1355,6 +1355,7 @@ ps_setup(pappl_system_t *system)      // I - System
 		!strstr(ppd->record.device_id, "MDL:HP_") &&
 		!strstr(ppd->record.device_id, "MODEL:hp2") &&
 		!strstr(ppd->record.device_id, "MODEL:hp3") &&
+		!strstr(ppd->record.device_id, "MODEL:hp9") &&
 		!strstr(ppd->record.device_id, "MODEL:HP2"))
 	    {
 	      // Cnonvert device ID to make/model string, so that we can add
