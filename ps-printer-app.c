@@ -12,14 +12,21 @@
 // Include necessary headers...
 //
 
-# include <pappl/pappl.h>
-# include <ppd/ppd.h>
-# include <cupsfilters/log.h>
-# include <cupsfilters/filter.h>
-# include <cupsfilters/ieee1284.h>
-# include <cups/cups.h>
-# include <string.h>
-# include <limits.h>
+#include <pappl/pappl.h>
+#include <ppd/ppd.h>
+#include <cupsfilters/log.h>
+#include <cupsfilters/filter.h>
+#include <cupsfilters/ieee1284.h>
+#include <cups/cups.h>
+#include <string.h>
+#include <limits.h>
+#include <stdlib.h>
+#include <malloc.h>
+
+#ifndef _DEFAULT_SOURCE
+#  define _DEFAULT_SOURCE
+#endif
+
 
 //
 // Types...
