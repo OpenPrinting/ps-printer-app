@@ -15,6 +15,7 @@ includedir	=	$(prefix)/include
 bindir		=	$(prefix)/bin
 libdir		=	$(prefix)/lib
 mandir		=	$(prefix)/share/man
+ppddir		=	$(prefix)/share/ppd
 unitdir 	:=	`pkg-config --variable=systemdsystemunitdir systemd`
 
 
@@ -47,6 +48,8 @@ install:	$(TARGETS)
 	cp $(TARGETS) $(bindir)
 	mkdir -p $(mandir)/man1
 	cp ps-printer-app.1 $(mandir)/man1
+	mkdir -p $(ppddir)
+	cp generic-ps-printer.ppd $(ppddir)
 	if test "x$(unitdir)" != x; then \
 	mkdir -p $(unitdir); \
 	cp ps-printer-app.service $(unitdir); \
