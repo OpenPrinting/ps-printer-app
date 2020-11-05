@@ -55,6 +55,8 @@ typedef struct ps_job_data_s		// Job data
                                         // sub-process
   FILE                  *device_file;   // File pointer for output to
                                         // device
+  int                   line_count;     // Raster lines actually received for
+                                        // this page
 } ps_job_data_t;
 
 
@@ -888,6 +890,10 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
   //  - print-speed
 
   // page-ranges (filter option)
+  if (job_options->first_page == 0)
+    job_options->first_page = 1;
+  if (job_options->last_page == 0)
+    job_options->last_page = INT_MAX;
   if (job_options->first_page > 1 || job_options->last_page < INT_MAX)
   {
     snprintf(buf, sizeof(buf), "%d-%d",
@@ -1463,10 +1469,26 @@ ps_rendpage(
 {
   ps_job_data_t         *job_data;      // PPD data for job
   FILE *devout;
+  unsigned char *pixels;
 
 
   job_data = (ps_job_data_t *)papplJobGetData(job);
   devout = job_data->device_file;
+
+  // If we got too few raster lines pad with bkank lines
+  if (job_data->line_count < options->header.cupsHeight)
+  {
+    pixels = (unsigned char *)malloc(options->header.cupsBytesPerLine);
+    if (options->header.cupsColorSpace == CUPS_CSPACE_K ||
+	options->header.cupsColorSpace == CUPS_CSPACE_CMYK)
+      memset(pixels, 0x00, options->header.cupsBytesPerLine);
+    else
+      memset(pixels, 0xff, options->header.cupsBytesPerLine);
+    for (; job_data->line_count < options->header.cupsHeight;
+	 job_data->line_count ++)
+      ps_ascii85(devout, pixels, options->header.cupsBytesPerLine, 0);
+    free (pixels);
+  }
 
   // Flush out remaining bytes of the bitmap 
   ps_ascii85(devout, NULL, 0, 1);
@@ -1510,7 +1532,7 @@ ps_rstartjob(
   // Create file descriptor/pipe to which the functions of libppd can send
   // the data so that it gets passed on to the device
   job_data->device_fd = filterPOpen(ps_print_filter_function, -1, nullfd,
-				    0, &jobcanceled, &filter_data, NULL,
+				    0, &jobcanceled, &filter_data, device,
 				    &(job_data->device_pid));
   if (job_data->device_fd < 0)
     return (false);
@@ -1589,17 +1611,51 @@ ps_rstartpage(
     pappl_device_t    *device,    // I - Device
     unsigned          page)       // I - Page number
 {
-  ps_job_data_t         *job_data;      // PPD data for job
+  pappl_pr_driver_data_t driver_data;
+  ps_job_data_t          *job_data;      // PPD data for job
   FILE *devout;
   int bpc;
 
 
+  papplPrinterGetDriverData(papplJobGetPrinter(job), &driver_data);
   job_data = (ps_job_data_t *)papplJobGetData(job);
   devout = job_data->device_file;
+  job_data->line_count = 0;
 
-  fprintf(devout, "%%%%Page: (%d) %d\n", page, page);
+  // Print 1 bit per pixel for monochrome draft printing
+  if (options->print_quality == IPP_QUALITY_DRAFT &&
+      options->print_color_mode != PAPPL_COLOR_MODE_COLOR &&
+      options->header.cupsNumColors == 1)
+  {
+    cupsRasterInitPWGHeader(&options->header,
+			    pwgMediaForPWG(options->media.size_name),
+			    "black_1",
+			    options->printer_resolution[0],
+			    options->printer_resolution[1],
+			    (options->header.Duplex ?
+			     (options->header.Tumble ?
+			      "two-sided-short-edge" : "two-sided-long-edge") :
+			     "one-sided"),
+			    "normal");
+    papplLogJob(job, PAPPL_LOGLEVEL_DEBUG,
+		"Monochrome draft quality job -> 1-bit dithering for speed-up");
+    if (options->print_content_optimize == PAPPL_CONTENT_PHOTO ||
+	!strcmp(papplJobGetFormat(job), "image/jpeg"))
+    {
+      memcpy(options->dither, driver_data.pdither, sizeof(options->dither));
+      papplLogJob(job, PAPPL_LOGLEVEL_DEBUG,
+		  "Photo/Image-optimized dither matrix");
+    }
+    else
+    {
+      memcpy(options->dither, driver_data.gdither, sizeof(options->dither));
+      papplLogJob(job, PAPPL_LOGLEVEL_DEBUG,
+		  "General-purpose dither matrix");
+    }
+  }
 
   // DSC header
+  fprintf(devout, "%%%%Page: (%d) %d\n", page, page);
   fputs("%%BeginPageSetup\n", devout);
   ppdEmit(job_data->ppd, devout, PPD_ORDER_PAGE);
   fputs("%%EndPageSetup\n", devout);
@@ -1690,7 +1746,9 @@ ps_rwriteline(
   job_data = (ps_job_data_t *)papplJobGetData(job);
   devout = job_data->device_file;
 
-  ps_ascii85(devout, pixels, options->header.cupsBytesPerLine, 0);
+  if (job_data->line_count < options->header.cupsHeight)
+    ps_ascii85(devout, pixels, options->header.cupsBytesPerLine, 0);
+  job_data->line_count ++;
 
   return (true);
 }
