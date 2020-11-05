@@ -2058,11 +2058,11 @@ system_cb(int           num_options,	// I - Number of options
   pappl_loglevel_t	loglevel;	// Log level
   int			port = 0;	// Port number, if any
   pappl_soptions_t	soptions = PAPPL_SOPTIONS_MULTI_QUEUE |
-                                   PAPPL_SOPTIONS_STANDARD |
-                                   PAPPL_SOPTIONS_LOG |
-                                   PAPPL_SOPTIONS_NETWORK |
-                                   PAPPL_SOPTIONS_SECURITY |
-                                   PAPPL_SOPTIONS_TLS;
+                                   PAPPL_SOPTIONS_WEB_INTERFACE |
+                                   PAPPL_SOPTIONS_WEB_LOG |
+                                   PAPPL_SOPTIONS_WEB_NETWORK |
+                                   PAPPL_SOPTIONS_WEB_SECURITY |
+                                   PAPPL_SOPTIONS_WEB_TLS;
 					// System options
   static pappl_version_t versions[1] =	// Software versions
   {
