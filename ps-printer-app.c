@@ -1475,7 +1475,7 @@ ps_rendpage(
   job_data = (ps_job_data_t *)papplJobGetData(job);
   devout = job_data->device_file;
 
-  // If we got too few raster lines pad with bkank lines
+  // If we got too few raster lines pad with blank lines
   if (job_data->line_count < options->header.cupsHeight)
   {
     pixels = (unsigned char *)malloc(options->header.cupsBytesPerLine);
