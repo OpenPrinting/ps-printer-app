@@ -1626,7 +1626,9 @@ ps_rstartpage(
   // Print 1 bit per pixel for monochrome draft printing
   if (options->print_quality == IPP_QUALITY_DRAFT &&
       options->print_color_mode != PAPPL_COLOR_MODE_COLOR &&
-      options->header.cupsNumColors == 1)
+      options->header.cupsNumColors == 1 &&
+      strcmp(papplJobGetFormat(job), "image/jpeg") &&
+      strcmp(papplJobGetFormat(job), "image/png"))
   {
     cupsRasterInitPWGHeader(&options->header,
 			    pwgMediaForPWG(options->media.size_name),
@@ -1640,8 +1642,7 @@ ps_rstartpage(
 			    "normal");
     papplLogJob(job, PAPPL_LOGLEVEL_DEBUG,
 		"Monochrome draft quality job -> 1-bit dithering for speed-up");
-    if (options->print_content_optimize == PAPPL_CONTENT_PHOTO ||
-	!strcmp(papplJobGetFormat(job), "image/jpeg"))
+    if (options->print_content_optimize == PAPPL_CONTENT_PHOTO)
     {
       memcpy(options->dither, driver_data.pdither, sizeof(options->dither));
       papplLogJob(job, PAPPL_LOGLEVEL_DEBUG,
