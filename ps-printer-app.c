@@ -1778,7 +1778,6 @@ ps_setup(pappl_system_t *system)      // I - System
   pappl_pr_driver_t swap;
   ps_filter_data_t *ps_filter_data,
                    *image_filter_data,
-                   //*raster_filter_data,
                    *pdf_filter_data;
 
   //
@@ -2053,19 +2052,6 @@ ps_setup(pappl_system_t *system)      // I - System
   papplSystemAddMIMEFilter(system,
 			   "image/jpeg", "application/vnd.printer-specific",
 			   ps_filter, image_filter_data);
-
-  /*// XXX Chain rastertops with pstops? (for multi-page and page logging)
-  raster_filter_data =
-    (ps_filter_data_t *)calloc(1, sizeof(ps_filter_data_t));
-  raster_filter_data->filter_function = rastertops;
-  raster_filter_data->filter_parameters = "RASTER";
-  papplSystemAddMIMEFilter(system,
-			   "image/pwg-raster",
-			   "application/vnd.printer-specific",
-			   ps_filter, raster_filter_data);
-  papplSystemAddMIMEFilter(system,
-			   "image/urf", "application/vnd.printer-specific",
-			   ps_filter, raster_filter_data);*/
 
   pdf_filter_data =
     (ps_filter_data_t *)calloc(1, sizeof(ps_filter_data_t));
