@@ -1403,6 +1403,7 @@ ps_print_filter_function(int inputfd,         // I - File descriptor input
       return (1);
     }
   }
+  papplDeviceFlush(device);
   //close(fd);
   close(inputfd);
   close(outputfd);
