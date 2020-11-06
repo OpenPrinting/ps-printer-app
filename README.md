@@ -7,15 +7,15 @@ of [cups-filters 2.x](https://github.com/OpenPrinting/cups-filters) (filter
 functions in libcupsfilters, libppd). This work is derived from the
 [hp-printer-app](https://github.com/michaelrsweet/hp-printer-app).
 
-Your contrinbutions are welcome. Please post [issues and pull
+Your contributions are welcome. Please post [issues and pull
 requests](https://github.com/OpenPrinting/ps-printer-app).
 
 This Printer Application is a working model for
 
 - A non-raster Printer Application: Destination format is PostScript,
   a high-level/vector format. Input data in PostScript or PDF is
-  accepted and needed conversion is not done through an inbetween
-  raster step.
+  accepted and needed conversion is done without any inbetween raster
+  steps.
 
 - A Printer Application which uses the new filter functions of
   cups-filters 2.x. Filter functions are library functions derived
@@ -31,7 +31,7 @@ This Printer Application is a working model for
   correctly into the output data stream.
 
 - A Printer Application which does not pass through raw (input format
-  is printer's native format) jobs. To assure that always teh
+  is printer's native format) jobs. To assure that always the
   PostScript code of the PPD file is inserted into the output stream,
   we call the printer's native format
   "application/vnd.printer-specific" which does not exist as input
@@ -42,8 +42,15 @@ This Printer Application is a working model for
   so that we can pass data through a sequence of filters, we create a
   filter function to send the data off to the printer and form a chain
   of the actually converting filter function (one of pstops(),
-  pdftops(), imagetops(), rastertops()) and the with this filter
-  function using the filterChain() filter function.
+  pdftops(), imagetops(), rastertops()) with this filter function
+  using the filterChain() filter function.
+
+- For PWG/Apple Raster input we use raster callbacks so that the
+  processing is streaming, allowing for large and even infinitely long
+  jobs. We use libppd functions to insert the PPD option's PostScript
+  code in the output stream and the filterPOpen() function to create a
+  file descriptor for the libppd functions to send data off to the
+  device.
 
 - The PostScript Printer Application has all PostScript PPD files of
   the [foomatic-db](https://github.com/OpenPrinting/foomatic-db) and
@@ -63,11 +70,6 @@ This Printer Application is a working model for
   of such options via the web interface is planned for a later
   version.
 
-- Only auto-detected USB printers work, if selecting a discovered
-  nework printer you can set it up and configure its default settings
-  bug jobs do not get printed. So select USB printers for now. This
-  seems to be a problem of PAPPL
-
 - This Printer Application and its snapping is derived from the
   hp-printer-app, which uses the "avahi-observe" Snap interface to
   access DNS-SD. This does not work for registering printers. In this
@@ -82,9 +84,6 @@ This Printer Application is a working model for
 
 - Add driver named "auto" which selects the PPD automatically based on
   device ID
-
-- Change driver-naming to names which do not change when the PPD file
-  list changes
 
 - Correct locations for the state file, the log file, and user-added
   PPD files
