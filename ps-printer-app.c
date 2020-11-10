@@ -1878,7 +1878,6 @@ ps_setup(pappl_system_t *system)      // I - System
   int              pre_normalized;
   pappl_pr_driver_t swap;
   ps_filter_data_t *ps_filter_data,
-                   *image_filter_data,
                    *pdf_filter_data;
 
   //
@@ -2145,14 +2144,6 @@ ps_setup(pappl_system_t *system)      // I - System
 			   "application/postscript",
 			   "application/vnd.printer-specific",
 			   ps_filter, ps_filter_data);
-
-  image_filter_data =
-    (ps_filter_data_t *)calloc(1, sizeof(ps_filter_data_t));
-  image_filter_data->filter_function = imagetops;
-  image_filter_data->filter_parameters = "IMG";
-  papplSystemAddMIMEFilter(system,
-			   "image/jpeg", "application/vnd.printer-specific",
-			   ps_filter, image_filter_data);
 
   pdf_filter_data =
     (ps_filter_data_t *)calloc(1, sizeof(ps_filter_data_t));
