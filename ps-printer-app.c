@@ -102,6 +102,8 @@ static bool   ps_callback(pappl_system_t *system, const char *driver_name,
 static int    ps_compare_ppd_paths(void *a, void *b, void *data); 
 bool          ps_filter(pappl_job_t *job, pappl_device_t *device, void *data);
 static void   ps_free_job_data(ps_job_data_t *job_data);
+static bool   ps_have_force_gray(ppd_file_t *ppd,
+				 const char **optstr, const char **choicestr);
 static void   ps_identify(pappl_printer_t *printer,
 			  pappl_identify_actions_t actions,
 			  const char *message);
@@ -502,7 +504,6 @@ ps_callback(
   driver_data->orient_default = IPP_ORIENT_NONE;
 
   // Supported color modes
-  // XXX Check ColorModel option for defaults
   if (ppd->color_device)
   {
     driver_data->color_supported =
@@ -540,16 +541,16 @@ ps_callback(
   {
     driver_data->sides_supported |= PAPPL_SIDES_TWO_SIDED_LONG_EDGE;
     driver_data->duplex = PAPPL_DUPLEX_NORMAL;
-    choice = ppdFindMarkedChoice(ppd, pc->sides_option);
-    if (strcmp(choice->choice, pc->sides_2sided_long) == 0)
+    if ((choice = ppdFindMarkedChoice(ppd, pc->sides_option)) != NULL &&
+	strcmp(choice->choice, pc->sides_2sided_long) == 0)
       driver_data->sides_default = PAPPL_SIDES_TWO_SIDED_LONG_EDGE;
   }
   if (pc->sides_2sided_short)
   {
     driver_data->sides_supported |= PAPPL_SIDES_TWO_SIDED_SHORT_EDGE;
     driver_data->duplex = PAPPL_DUPLEX_NORMAL;
-    choice = ppdFindMarkedChoice(ppd, pc->sides_option);
-    if (strcmp(choice->choice, pc->sides_2sided_short) == 0)
+    if ((choice = ppdFindMarkedChoice(ppd, pc->sides_option)) != NULL &&
+	strcmp(choice->choice, pc->sides_2sided_short) == 0)
       driver_data->sides_default = PAPPL_SIDES_TWO_SIDED_SHORT_EDGE;
   }
 
@@ -831,7 +832,8 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
   cups_option_t         *opt;
   ipp_t                 *driver_attrs;  // Printer (driver) IPP attributes
   char                  buf[1024];      // Buffer for building strings
-  const char            *choicestr,     // Chice name from PPD option
+  const char            *optstr,        // Option name from PPD option
+                        *choicestr,     // Choice name from PPD option
                         *val;           // Value string from IPP option
   ipp_t                 *attrs;         // IPP Attributes structure
   ipp_t		        *media_col,	// media-col IPP structure
@@ -1000,6 +1002,25 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
     job_data->num_options = cupsAddOption(presets[i].name, presets[i].value,
 					  job_data->num_options,
 					  &(job_data->options));
+
+  // Do we have a way to force grayscale printing?
+  if (pcm == 0)
+  {
+    // Find suitable option in the PPD file and set it if available
+    if (ps_have_force_gray(job_data->ppd, &optstr, &choicestr) &&
+	cupsGetOption(optstr, job_data->num_options,
+		      job_data->options) == NULL)
+      job_data->num_options = cupsAddOption(optstr, choicestr,
+					    job_data->num_options,
+					    &(job_data->options));
+    // Add "ColorModel=Gray" to make filters converting color
+    // input to grayscale
+    if (cupsGetOption("ColorModel", job_data->num_options,
+		      job_data->options) == NULL)
+      job_data->num_options = cupsAddOption("ColorModel", "Gray",
+					    job_data->num_options,
+					    &(job_data->options));
+  }
 
   // print-scaling (filter option)
   papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: print-scaling");
@@ -1261,6 +1282,84 @@ static void   ps_free_job_data(ps_job_data_t *job_data)
   ppdClose(job_data->ppd);
   cupsFreeOptions(job_data->num_options, job_data->options);
   free(job_data);
+}
+
+
+//
+// 'ps_have_force_gray()' - Check PPD file whether there is an option setting
+//                          which forces grayscale output. Return the first
+//                          suitable one as pair of option name and value.
+//
+
+static bool                                // O - True if suitable setting found
+ps_have_force_gray(ppd_file_t *ppd,        // I - PPD file to check
+		   const char **optstr,    // I - Option name of found option
+		   const char **choicestr) // I - Choice name to force grayscale
+{
+  ppd_option_t *option;
+
+
+  if ((option = ppdFindOption(ppd, "ColorModel")) != NULL &&
+      ppdFindChoice(option, "Gray"))
+  {
+    if (optstr)
+      *optstr = "ColorModel";
+    if (choicestr)
+      *choicestr = "Gray";
+    return (true);
+  }
+  else if ((option = ppdFindOption(ppd, "ColorModel")) != NULL &&
+	   ppdFindChoice(option, "Grayscale"))
+  {
+    if (optstr)
+      *optstr = "ColorModel";
+    if (choicestr)
+      *choicestr = "Grayscale";
+    return (true);
+  }
+  else if ((option = ppdFindOption(ppd, "HPColorMode")) != NULL &&
+	   ppdFindChoice(option, "grayscale"))
+  {
+    if (optstr)
+      *optstr = "HPColorMode";
+    if (choicestr)
+      *choicestr = "grayscale";
+    return (true);
+  }
+  else if ((option = ppdFindOption(ppd, "BRMonoColor")) != NULL &&
+	   ppdFindChoice(option, "Mono"))
+  {
+    if (optstr)
+      *optstr = "BRMonoColor";
+    if (choicestr)
+      *choicestr = "Mono";
+    return (true);
+  }
+  else if ((option = ppdFindOption(ppd, "CNIJSGrayScale")) != NULL &&
+	   ppdFindChoice(option, "1"))
+  {
+    if (optstr)
+      *optstr = "CNIJSGrayScale";
+    if (choicestr)
+      *choicestr = "1";
+    return (true);
+  }
+  else if ((option = ppdFindOption(ppd, "HPColorAsGray")) != NULL &&
+	   ppdFindChoice(option, "True"))
+  {
+    if (optstr)
+      *optstr = "HPColorAsGray";
+    if (choicestr)
+      *choicestr = "True";
+    return (true);
+  }
+
+  if (optstr)
+    *optstr = NULL;
+  if (choicestr)
+    *choicestr = NULL;
+
+  return (false);
 }
 
 
