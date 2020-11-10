@@ -850,6 +850,7 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
   ppd_option_t          *option;        // PPD option
   ppd_choice_t          *choice;        // Choice in PPD option
   ppd_attr_t            *ppd_attr;
+  pwg_map_t             *pwg_map;
   int                   jobcanceled = 0;// Is job canceled?
   pappl_printer_t       *printer = papplJobGetPrinter(job);
 
@@ -1129,24 +1130,34 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
   //
 
   // OutputBin/output-bin
-  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: OutputBin");
-  if ((attr = papplJobGetAttribute(job, "output-bin")) == NULL)
-    attr = ippFindAttribute(driver_attrs, "output-bin-default",
-			    IPP_TAG_ZERO);
-  if (attr)
+  if ((count = pc->num_bins) > 0)
   {
-    val = ippGetString(attr, 0, NULL);
-    if ((choicestr = ppdCacheGetOutputBin(pc, val)) != NULL)
+    papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: OutputBin");
+    if ((attr = papplJobGetAttribute(job, "output-bin")) == NULL)
+      attr = ippFindAttribute(driver_attrs, "output-bin-default",
+			      IPP_TAG_ZERO);
+    choicestr = NULL;
+    if (attr)
+    {
+      val = ippGetString(attr, 0, NULL);
+      for (i = 0, pwg_map = pc->bins; i < count; i ++, pwg_map ++)
+	if (!strcmp(pwg_map->pwg, val))
+	  choicestr = pwg_map->ppd;
+    }
+    if (choicestr == NULL)
+    {
+      val = driver_data.bin[driver_data.bin_default];
+      for (i = 0, pwg_map = pc->bins; i < count; i ++, pwg_map ++)
+	if (!strcmp(pwg_map->pwg, val))
+	  choicestr = pwg_map->ppd;
+    }
+    if (choicestr != NULL)
       job_data->num_options = cupsAddOption("OutputBin", choicestr,
 					    job_data->num_options,
 					    &(job_data->options));
   }
 
-  // XXX User driver_data.bin_default (int) for default
-
   // XXX "Collate" option
-
-  // XXX Control Gray/Color printing?
 
   // Mark options in the PPD file
   ppdMarkOptions(job_data->ppd, job_data->num_options, job_data->options);
