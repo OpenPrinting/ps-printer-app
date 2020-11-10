@@ -115,6 +115,8 @@ static void   ps_media_col(pwg_size_t *pwg_size, const char *def_source,
 			   const char *def_type, int left_offset,
 			   int top_ofsset, pappl_media_tracking_t tracking,
 			   pappl_media_col_t *col);
+static void   ps_one_bit_dither_on_draft(pappl_job_t *job,
+					 pappl_pr_options_t *options);
 int           ps_print_filter_function(int inputfd, int outputfd,
 				       int inputseekable, int *jobcanceled,
 				       filter_data_t *data, void *parameters);
@@ -1448,6 +1450,56 @@ ps_media_col(pwg_size_t *pwg_size,            // I - Media size entry from PPD
 
 
 //
+// 'ps_one_bit_dither_on_draft()' - If a PWG/Apple-Raster or image job
+//                                  is printed in grayscale in draft mode
+//                                  switch to 1-bit dithering mode to get
+//                                  printing as fast as possible
+//
+
+static void
+ps_one_bit_dither_on_draft(
+    pappl_job_t      *job,       // I   - Job
+    pappl_pr_options_t *options) // I/O - Job options
+{
+  pappl_pr_driver_data_t driver_data;
+
+
+  papplPrinterGetDriverData(papplJobGetPrinter(job), &driver_data);
+  if (options->print_quality == IPP_QUALITY_DRAFT &&
+      options->print_color_mode != PAPPL_COLOR_MODE_COLOR &&
+      options->header.cupsNumColors == 1)
+  {
+    cupsRasterInitPWGHeader(&options->header,
+			    pwgMediaForPWG(options->media.size_name),
+			    "black_1",
+			    options->printer_resolution[0],
+			    options->printer_resolution[1],
+			    (options->header.Duplex ?
+			     (options->header.Tumble ?
+			      "two-sided-short-edge" : "two-sided-long-edge") :
+			     "one-sided"),
+			    "normal");
+    papplLogJob(job, PAPPL_LOGLEVEL_DEBUG,
+		"Monochrome draft quality job -> 1-bit dithering for speed-up");
+    if (options->print_content_optimize == PAPPL_CONTENT_PHOTO ||
+	!strcmp(papplJobGetFormat(job), "image/jpeg") ||
+	!strcmp(papplJobGetFormat(job), "image/png"))
+    {
+      memcpy(options->dither, driver_data.pdither, sizeof(options->dither));
+      papplLogJob(job, PAPPL_LOGLEVEL_DEBUG,
+		  "Photo/Image-optimized dither matrix");
+    }
+    else
+    {
+      memcpy(options->dither, driver_data.gdither, sizeof(options->dither));
+      papplLogJob(job, PAPPL_LOGLEVEL_DEBUG,
+		  "General-purpose dither matrix");
+    }
+  }
+}
+
+
+//
 // 'ps_print_filter_function()' - Print file.
 //                                This function has the format of a filter
 //                                function of libcupsfilters, so we can chain
@@ -1643,6 +1695,9 @@ ps_rstartjob(
   // Save data for the other raster callback functions
   papplJobSetData(job, job_data);
 
+  // Print 1 bit per pixel for monochrome draft printing
+  ps_one_bit_dither_on_draft(job, options);
+
   // DSC header
   job_name = papplJobGetName(job);
 
@@ -1711,49 +1766,17 @@ ps_rstartpage(
     pappl_device_t    *device,    // I - Device
     unsigned          page)       // I - Page number
 {
-  pappl_pr_driver_data_t driver_data;
   ps_job_data_t          *job_data;      // PPD data for job
   FILE *devout;
   int bpc;
 
 
-  papplPrinterGetDriverData(papplJobGetPrinter(job), &driver_data);
   job_data = (ps_job_data_t *)papplJobGetData(job);
   devout = job_data->device_file;
   job_data->line_count = 0;
 
   // Print 1 bit per pixel for monochrome draft printing
-  if (options->print_quality == IPP_QUALITY_DRAFT &&
-      options->print_color_mode != PAPPL_COLOR_MODE_COLOR &&
-      options->header.cupsNumColors == 1 &&
-      strcmp(papplJobGetFormat(job), "image/jpeg") &&
-      strcmp(papplJobGetFormat(job), "image/png"))
-  {
-    cupsRasterInitPWGHeader(&options->header,
-			    pwgMediaForPWG(options->media.size_name),
-			    "black_1",
-			    options->printer_resolution[0],
-			    options->printer_resolution[1],
-			    (options->header.Duplex ?
-			     (options->header.Tumble ?
-			      "two-sided-short-edge" : "two-sided-long-edge") :
-			     "one-sided"),
-			    "normal");
-    papplLogJob(job, PAPPL_LOGLEVEL_DEBUG,
-		"Monochrome draft quality job -> 1-bit dithering for speed-up");
-    if (options->print_content_optimize == PAPPL_CONTENT_PHOTO)
-    {
-      memcpy(options->dither, driver_data.pdither, sizeof(options->dither));
-      papplLogJob(job, PAPPL_LOGLEVEL_DEBUG,
-		  "Photo/Image-optimized dither matrix");
-    }
-    else
-    {
-      memcpy(options->dither, driver_data.gdither, sizeof(options->dither));
-      papplLogJob(job, PAPPL_LOGLEVEL_DEBUG,
-		  "General-purpose dither matrix");
-    }
-  }
+  ps_one_bit_dither_on_draft(job, options);
 
   // DSC header
   fprintf(devout, "%%%%Page: (%d) %d\n", page, page);
