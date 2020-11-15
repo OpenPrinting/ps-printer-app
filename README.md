@@ -41,9 +41,9 @@ This Printer Application is a working model for
 - To do not need to re-invent the code for forking into sub-processes
   so that we can pass data through a sequence of filters, we create a
   filter function to send the data off to the printer and form a chain
-  of the actually converting filter function (one of pstops(),
-  pdftops(), imagetops(), rastertops()) with this filter function
-  using the filterChain() filter function.
+  of the actually converting filter function (one of pstops() and
+  pdftops()) with this filter function using the filterChain() filter
+  function.
 
 - For PWG/Apple Raster input we use raster callbacks so that the
   processing is streaming, allowing for large and even infinitely long
@@ -52,14 +52,21 @@ This Printer Application is a working model for
   file descriptor for the libppd functions to send data off to the
   device.
 
-- The PostScript Printer Application has all PostScript PPD files of
-  the [foomatic-db](https://github.com/OpenPrinting/foomatic-db) and
-  [HPLIP](https://developers.hp.com/hp-linux-imaging-and-printing)
+- The PostScript Printer Application Snap has all PostScript PPD files
+  of the [foomatic-db](https://github.com/OpenPrinting/foomatic-db)
+  and [HPLIP](https://developers.hp.com/hp-linux-imaging-and-printing)
   projects built-in, so most PostScript printer PPDs which usually
   come with Linux Distributions. Note that some PPDs use certain CUPS
   filters for extra functionality. These filters are not included. The
   user can add additional PPDs without needing to rebuild the Snap.
 
+- We use the printer's IEEE-1284 device ID to identify at first that
+  it is a PostScript printer (via CMD: field) to see whether it is
+  supported at all and only then check via make and model whether we
+  explicitly support it with a PPD. PostScript printers for which
+  there is no PPD get a generic PPD assigned. By the check of the CMD:
+  field before make/model lookup we assure that if PostScript is
+  provided by an add-on module that the module is actually installed.
 
 ## KNOWN ISSUES
 
@@ -82,9 +89,6 @@ This Printer Application is a working model for
 
 - Add printer auto-setup for all supported printers
 
-- Add driver named "auto" which selects the PPD automatically based on
-  device ID
-
 - Correct locations for the state file, the log file, and user-added
   PPD files
 
@@ -92,10 +96,6 @@ This Printer Application is a working model for
   interface, so that they can be set as printer default at least.
 
 - Add PPD files via web interface
-
-- If in a future version the PPD repository changed and an installed
-  printer does not find its PPD any more on startup, let it fall back
-  to the "auto" driver so that it finds a new, suitable PPD
 
 - Build options for cups-filters, to build without libqpdf and/or
   withour libppd, the former will allow to create the Snap of this
