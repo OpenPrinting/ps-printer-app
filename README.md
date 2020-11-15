@@ -70,13 +70,6 @@ This Printer Application is a working model for
 
 ## KNOWN ISSUES
 
-- Not all options of the PPD files are represented in the web
-  interface, only options with IPP representation are shown (and
-  supported in jobs). Of the unsupported options we at least insert
-  the PostScript code of the default value. At least changing defaults
-  of such options via the web interface is planned for a later
-  version.
-
 - This Printer Application and its snapping is derived from the
   hp-printer-app, which uses the "avahi-observe" Snap interface to
   access DNS-SD. This does not work for registering printers. In this
@@ -91,9 +84,6 @@ This Printer Application is a working model for
 
 - Correct locations for the state file, the log file, and user-added
   PPD files
-
-- Access to PPD options not representable by IPP via the web
-  interface, so that they can be set as printer default at least.
 
 - Add PPD files via web interface
 
