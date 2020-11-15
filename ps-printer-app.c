@@ -12,6 +12,13 @@
 // Include necessary headers...
 //
 
+#ifndef _DEFAULT_SOURCE
+#  define _DEFAULT_SOURCE
+#endif
+#ifndef _GNU_SOURCE
+#  define _GNU_SOURCE
+#endif
+
 #include <pappl/pappl.h>
 #include <ppd/ppd.h>
 #include <cupsfilters/log.h>
@@ -22,10 +29,6 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <malloc.h>
-
-#ifndef _DEFAULT_SOURCE
-#  define _DEFAULT_SOURCE
-#endif
 
 
 //
@@ -288,19 +291,46 @@ ps_autoadd(const char *device_info,	// I - Device name (unused)
   (void)device_uri;
   (void)data;
 
+  if (device_id == NULL)
+    return (NULL);
+
   // Parse the IEEE-1284 device ID to see if this is a printer we support...
   num_did = papplDeviceParseID(device_id, &did);
+  if (num_did == 0 || did == NULL)
+    return (NULL);
 
-  // Make and model
-  if (num_did)
+  // Look at the COMMAND SET (CMD) key for the list of printer languages...
+  //
+  // There are several printers for which PostScript is available in an
+  // add-on module, so there are printers with the same model name but
+  // with and without PostScript support. So we auto-add printers only
+  // if their device ID explicitly tells that they do PostScript
+  if ((cmd = cupsGetOption("COMMAND SET", num_did, did)) == NULL)
+    cmd = cupsGetOption("CMD", num_did, did);
+
+  if (cmd == NULL ||
+      ((ps = strcasestr(cmd, "POSTSCRIPT")) == NULL &&
+       (ps = strcasestr(cmd, "BRSCRIPT")) == NULL &&
+       ((ps = strcasestr(cmd, "PS")) == NULL ||
+	(ps[2] != ',' && ps[2])) &&
+       ((ps = strcasestr(cmd, "PS2")) == NULL ||
+	(ps[3] != ',' && ps[3])) &&
+       ((ps = strcasestr(cmd, "PS3")) == NULL ||
+	(ps[3] != ',' && ps[3]))))
   {
-    if ((mfg = cupsGetOption("MANUFACTURER", num_did, did)) == NULL)
-      mfg = cupsGetOption("MFG", num_did, did);
-    if ((mdl = cupsGetOption("MODEL", num_did, did)) == NULL)
-      mdl = cupsGetOption("MDL", num_did, did);
+    // Printer does not support PostScript, it is not supported by this
+    // Printer Application
+    ret = NULL;
+    goto done;
   }
 
-  if (num_did && mfg && mdl)
+  // Make and model
+  if ((mfg = cupsGetOption("MANUFACTURER", num_did, did)) == NULL)
+    mfg = cupsGetOption("MFG", num_did, did);
+  if ((mdl = cupsGetOption("MODEL", num_did, did)) == NULL)
+    mdl = cupsGetOption("MDL", num_did, did);
+
+  if (mfg && mdl)
   {
     // Match make and model with device ID of driver list entry
     for (i = 1; i < num_drivers; i ++)
@@ -308,7 +338,7 @@ ps_autoadd(const char *device_info,	// I - Device name (unused)
       if (drivers[i].device_id[0])
       {
 	num_ddid = papplDeviceParseID(drivers[i].device_id, &ddid);
-	if (num_ddid == 0)
+	if (num_ddid == 0 || ddid == NULL)
 	  continue;
 	if ((dmfg = cupsGetOption("MANUFACTURER", num_ddid, ddid)) == NULL)
 	  dmfg = cupsGetOption("MFG", num_ddid, ddid);
@@ -321,49 +351,37 @@ ps_autoadd(const char *device_info,	// I - Device name (unused)
 	  ret = drivers[i].name;
 	cupsFreeOptions(num_ddid, ddid);
 	if (ret)
-	  break;
+	  goto done;
       }
     }
 
-    if (ret == NULL)
+    // Normalize device ID to format of driver name and match
+    ieee1284NormalizeMakeAndModel(device_id, NULL,
+				  IEEE1284_NORMALIZE_IPP,
+				  buf, sizeof(buf),
+				  NULL, NULL);
+    for (i = 1; i < num_drivers; i ++)
     {
-      // Normalize device ID to format of driver name and match
-      ieee1284NormalizeMakeAndModel(device_id, NULL,
-				    IEEE1284_NORMALIZE_IPP,
-				    buf, sizeof(buf),
-				    NULL, NULL);
-      for (i = 1; i < num_drivers; i ++)
+      if (strncmp(buf, drivers[i].name, strlen(buf)) == 0)
       {
-	if (strncmp(buf, drivers[i].name, strlen(buf)) == 0)
-	{
-	  // Match
-	  ret = drivers[i].name;
-	  break;
-	}
+	// Match
+	ret = drivers[i].name;
+	goto done;
       }
     }
   }
 
-  // Look at the COMMAND SET (CMD) key for the list of printer languages,,,
-  if (ret == NULL && num_did && strcasecmp(drivers[1].name, "generic"))
-  {
-    if ((cmd = cupsGetOption("COMMAND SET", num_did, did)) == NULL)
-      cmd = cupsGetOption("CMD", num_did, did);
+  // PostScript printer but none of the PPDs matches? Assign the generic PPD
+  // if we have one
+  if (strcasecmp(drivers[1].name, "generic"))
+    ret = "generic";
 
-    if (cmd &&
-	((ps = strstr(cmd, "POSTSCRIPT")) != NULL &&
-	 (ps[10] == ',' || !ps[10])))
-    {
-      // Printer supports PostScript, so assign a generic driver
-      ret = "generic";		// Some other PCL laser printer
-    }
-  }
-
-  if (did)
-    cupsFreeOptions(num_did, did);
+ done:
+  cupsFreeOptions(num_did, did);
 
   return (ret);
 }
+
 
 //
 // 'ps_callback()' - PostScript callback.
@@ -431,7 +449,7 @@ ps_callback(
     else
     {
       papplLog(system, PAPPL_LOGLEVEL_ERROR,
-	       "Automatic printer driver selction for printer "
+	       "Automatic printer driver selection for printer "
 	       "\"%s\" with device ID \"%s\" failed.",
 	       device_uri, device_id);
       return (false);
