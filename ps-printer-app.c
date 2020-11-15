@@ -96,7 +96,7 @@ static const char *ps_autoadd(const char *device_info, const char *device_uri,
 static void   ps_ascii85(FILE *outputfp, const unsigned char *data, int length,
 			 int last_data);
 static bool   ps_callback(pappl_system_t *system, const char *driver_name,
-			  const char *device_uri,
+			  const char *device_uri, const char *device_id,
 			  pappl_pr_driver_data_t *driver_data,
 			  ipp_t **driver_attrs, void *data);
 static int    ps_compare_ppd_paths(void *a, void *b, void *data); 
@@ -267,45 +267,55 @@ ps_ascii85(FILE                *outputfp,
 //
 
 static const char *			// O - Driver name or `NULL` for none
-ps_autoadd(const char *device_info,	// I - Device name
-	   const char *device_uri,	// I - Device URI
+ps_autoadd(const char *device_info,	// I - Device name (unused)
+	   const char *device_uri,	// I - Device URI (unused)
 	   const char *device_id,	// I - IEEE-1284 device ID
 	   void       *data)		// I - Callback data (not used)
 {
   int           i;
   const char	*ret = NULL;		// Return value
   int		num_did;		// Number of device ID key/value pairs
-  cups_option_t	*did;			// Device ID key/value pairs
+  cups_option_t	*did = NULL;		// Device ID key/value pairs
   int		num_ddid;		// Device ID of driver list entry
-  cups_option_t	*ddid;			// Device ID of driver list entry
+  cups_option_t	*ddid = NULL;		// Device ID of driver list entry
   const char	*cmd,			// Command set value
                 *mfg, *dmfg, *mdl, *dmdl, // Device ID fields
 		*ps;			// PostScript command set pointer
   char          buf[1024];
 
 
+  (void)device_info;
+  (void)device_uri;
+  (void)data;
+
   // Parse the IEEE-1284 device ID to see if this is a printer we support...
   num_did = papplDeviceParseID(device_id, &did);
 
   // Make and model
-  if ((mfg = cupsGetOption("MANUFACTURER", num_did, did)) == NULL)
-    mfg = cupsGetOption("MFG", num_did, did);
-  if ((mdl = cupsGetOption("MODEL", num_did, did)) == NULL)
-    mdl = cupsGetOption("MDL", num_did, did);
+  if (num_did)
+  {
+    if ((mfg = cupsGetOption("MANUFACTURER", num_did, did)) == NULL)
+      mfg = cupsGetOption("MFG", num_did, did);
+    if ((mdl = cupsGetOption("MODEL", num_did, did)) == NULL)
+      mdl = cupsGetOption("MDL", num_did, did);
+  }
 
-  if (mfg && mdl)
+  if (num_did && mfg && mdl)
   {
     // Match make and model with device ID of driver list entry
-    for (i = 0; i < num_drivers; i ++)
+    for (i = 1; i < num_drivers; i ++)
     {
       if (drivers[i].device_id[0])
       {
 	num_ddid = papplDeviceParseID(drivers[i].device_id, &ddid);
+	if (num_ddid == 0)
+	  continue;
 	if ((dmfg = cupsGetOption("MANUFACTURER", num_ddid, ddid)) == NULL)
 	  dmfg = cupsGetOption("MFG", num_ddid, ddid);
 	if ((dmdl = cupsGetOption("MODEL", num_ddid, ddid)) == NULL)
 	  dmdl = cupsGetOption("MDL", num_ddid, ddid);
-	if (strcasecmp(mfg, dmfg) == 0 &&
+	if (dmfg && dmdl &&
+	    strcasecmp(mfg, dmfg) == 0 &&
 	    strcasecmp(mdl, dmdl) == 0)
 	  // Match
 	  ret = drivers[i].name;
@@ -335,7 +345,7 @@ ps_autoadd(const char *device_info,	// I - Device name
   }
 
   // Look at the COMMAND SET (CMD) key for the list of printer languages,,,
-  if (ret == NULL)
+  if (ret == NULL && num_did && strcasecmp(drivers[1].name, "generic"))
   {
     if ((cmd = cupsGetOption("COMMAND SET", num_did, did)) == NULL)
       cmd = cupsGetOption("CMD", num_did, did);
@@ -349,7 +359,8 @@ ps_autoadd(const char *device_info,	// I - Device name
     }
   }
 
-  cupsFreeOptions(num_did, did);
+  if (did)
+    cupsFreeOptions(num_did, did);
 
   return (ret);
 }
@@ -364,6 +375,7 @@ ps_callback(
     pappl_system_t       *system,	   // I - System
     const char           *driver_name,     // I - Driver name
     const char           *device_uri,	   // I - Device URI
+    const char           *device_id,	   // I - Device ID
     pappl_pr_driver_data_t *driver_data,   // O - Driver data
     ipp_t                **driver_attrs,   // O - Driver attributes
     void                 *data)	           // I - Callback data
@@ -407,31 +419,48 @@ ps_callback(
   // cache
   //
 
-  search_ppd_path.driver_name = driver_name;
-  ppd_path = (ps_ppd_path_t *)cupsArrayFind(ppd_paths,
-					    &search_ppd_path);
-  if (ppd_path == NULL)
+ retry:
+  if (strcasecmp(driver_name, "auto") == 0)
   {
-    papplLog(system, PAPPL_LOGLEVEL_ERROR,
-	     "Printer uses driver %s which does not exist in this Printer "
-	     "Application, switching to \"generic\".", driver_name);
-    search_ppd_path.driver_name = "generic";
-    ppd_path = (ps_ppd_path_t *)cupsArrayFind(ppd_paths,
-					      &search_ppd_path);
-    if (ppd_path == NULL)
+    // Auto-select driver
+    search_ppd_path.driver_name = ps_autoadd(NULL, device_uri, device_id, NULL);
+    if (search_ppd_path.driver_name)
+      papplLog(system, PAPPL_LOGLEVEL_INFO,
+	       "Automatic printer driver selection, using \"%s\".",
+	       search_ppd_path.driver_name);
+    else
     {
       papplLog(system, PAPPL_LOGLEVEL_ERROR,
-	       "No \"generic\" driver entry found.");
+	       "Automatic printer driver selction for printer "
+	       "\"%s\" with device ID \"%s\" failed.",
+	       device_uri, device_id);
       return (false);
     }
   }
+  else
+    search_ppd_path.driver_name = driver_name;
 
-  /*if (ppd_path == NULL || strcasecmp(driver_name, "auto") == 0)
+  ppd_path = (ps_ppd_path_t *)cupsArrayFind(ppd_paths, &search_ppd_path);
+
+  if (ppd_path == NULL)
   {
-    // XXX Auto-select driver
-    search_ppd_path.driver_name = ps_autoadd(device_info, device_uri,
-					     device_id,	data);
-  }*/
+    if (strcasecmp(driver_name, "auto") == 0)
+    {
+      papplLog(system, PAPPL_LOGLEVEL_ERROR,
+	       "For the printer driver \"%s\" got auto-selected which does not "
+	       "exist in this Printer Application.",
+	       search_ppd_path.driver_name);
+      return (false);
+    }
+    else
+    {
+      papplLog(system, PAPPL_LOGLEVEL_WARN,
+	       "Printer uses driver \"%s\" which does not exist in this "
+	       "Printer Application, switching to \"auto\".", driver_name);
+      driver_name = "auto";
+      goto retry;
+    }
+  }
 
   if ((ppd = ppdOpen2(ppdCollectionGetPPD(ppd_path->ppd_path, NULL,
 					  (filter_logfunc_t)papplLog,
@@ -1992,14 +2021,14 @@ ps_setup(pappl_system_t *system)      // I - System
 	       "Printer Application will only support printers "
 	       "explicitly supported by the PPD files");
     // Create driver indices
-    drivers = (pappl_pr_driver_t *)calloc(1 + num_drivers + PPD_MAX_PROD,
+    drivers = (pappl_pr_driver_t *)calloc(num_drivers + PPD_MAX_PROD,
 					  sizeof(pappl_pr_driver_t));
-    // XXX Add entry for "auto" driver selection (not yet implemented)
-    //drivers[i].name = strdup("auto");
-    //drivers[i].description = strdup("Automatic Selection");
-    //drivers[i].device_id = strdup("CMD:POSTSCRIPT;");
-    //drivers[i].extension = strdup(" auto");
-    //i ++;
+    // Add entry for "auto" driver selection (not yet implemented)
+    drivers[i].name = strdup("auto");
+    drivers[i].description = strdup("Automatic Selection");
+    drivers[i].device_id = strdup("CMD:POSTSCRIPT;");
+    drivers[i].extension = strdup(" auto");
+    i ++;
     if (generic_ppd)
     {
       drivers[i].name = strdup("generic");
@@ -2145,7 +2174,7 @@ ps_setup(pappl_system_t *system)      // I - System
 	// Add memory for PPD with multiple product entries
 	num_drivers += j;
 	drivers = (pappl_pr_driver_t *)reallocarray(drivers,
-						    1 + num_drivers +
+						    num_drivers +
 						    PPD_MAX_PROD,
 						    sizeof(pappl_pr_driver_t));
       }
