@@ -316,7 +316,8 @@ ps_autoadd(const char *device_info,	// I - Device name (unused)
        ((ps = strcasestr(cmd, "PS2")) == NULL ||
 	(ps[3] != ',' && ps[3])) &&
        ((ps = strcasestr(cmd, "PS3")) == NULL ||
-	(ps[3] != ',' && ps[3]))))
+	(ps[3] != ',' && ps[3]))) ||
+      (ps != cmd && *(ps - 1) != ','))
   {
     // Printer does not support PostScript, it is not supported by this
     // Printer Application
