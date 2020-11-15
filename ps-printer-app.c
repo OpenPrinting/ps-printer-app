@@ -35,11 +35,18 @@
 // Types...
 //
 
-typedef struct ps_ppd_path_s		// Driver-name/PPD-path pair 
+typedef struct ps_ppd_path_s		// Driver-name/PPD-path pair
 {
   const char *driver_name;              // Driver name
   const char *ppd_path;	                // PPD path in collections
 } ps_ppd_path_t;
+
+typedef struct ps_driver_extension_s	// Driver data extension
+{
+  const char *ppd_path;	                // PPD path in collections
+  const char *vendor_ppd_options[PAPPL_MAX_VENDOR]; // Names of the PPD options
+                                        // represented as vendor options;
+} ps_driver_extension_t;
 
 typedef struct ps_filter_data_s		// Filter data
 {
@@ -399,7 +406,8 @@ ps_callback(
     ipp_t                **driver_attrs,   // O - Driver attributes
     void                 *data)	           // I - Callback data
 {
-  int          i, j;                       // Looping variables
+  int          i, j, k;                    // Looping variables
+  ps_driver_extension_t *extension;
   cups_array_t *ppd_paths = (cups_array_t *)data;
   ps_ppd_path_t *ppd_path,
                search_ppd_path;
@@ -411,6 +419,7 @@ ps_callback(
                *def_type,
                *def_media;
   int          def_left, def_right, def_top, def_bottom;
+  ppd_group_t  *group;
   ppd_option_t *option;
   ppd_choice_t *choice;
   ppd_attr_t   *ppd_attr;
@@ -418,6 +427,25 @@ ps_callback(
   pwg_size_t   *pwg_size;
   ppd_pwg_finishings_t *finishings;
   int          count;
+  char         ipp_opt[80],
+               ipp_supported[128],
+               ipp_default[128],
+               ipp_choice[80];
+  char         **choice_list;
+  int          default_choice;
+  const char * const pappl_handled_options[] =
+  {
+   "PageSize",
+   "PageRegion",
+   "InputSlot",
+   "MediaType",
+   "Resolution",
+   "ColorModel",
+   "OutputBin",
+   "Duplex",
+   NULL
+  };
+
 
   if (!driver_name || !device_uri || !driver_data || !driver_attrs)
   {
@@ -490,13 +518,13 @@ ps_callback(
 
     err = ppdLastError(&line);
     papplLog(system, PAPPL_LOGLEVEL_ERROR,
-	     "PPD %s: %s on line %d\n", ppd_path->ppd_path,
+	     "PPD %s: %s on line %d", ppd_path->ppd_path,
 	     ppdErrorString(err), line);
     return (false);
   }
 
   papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-	   "Using PPD %s: %s\n", ppd_path->ppd_path, ppd->nickname);
+	   "Using PPD %s: %s", ppd_path->ppd_path, ppd->nickname);
 
   ppdMarkDefaults(ppd);
   if ((pc = ppdCacheCreateWithPPD(ppd)) != NULL)
@@ -507,7 +535,10 @@ ps_callback(
   //
 
   // Callback functions end general properties
-  driver_data->extension          = strdup(ppd_path->ppd_path);
+  driver_data->extension =
+    (ps_driver_extension_t *)calloc(1, sizeof(ps_driver_extension_t));
+  extension = (ps_driver_extension_t *)driver_data->extension;
+  extension->ppd_path = strdup(ppd_path->ppd_path);
   driver_data->identify_cb        = ps_identify;
   driver_data->identify_default   = PAPPL_IDENTIFY_ACTIONS_SOUND;
   driver_data->identify_supported = PAPPL_IDENTIFY_ACTIONS_DISPLAY |
@@ -539,7 +570,7 @@ ps_callback(
   else
     driver_data->ppm_color = 0;
 
-  // Properties bot supported by the PPD
+  // Properties not supported by the PPD
   driver_data->has_supplies = false;
   driver_data->input_face_up = false;
 
@@ -637,7 +668,7 @@ ps_callback(
       else if (j <= 0)
       {
 	papplLog(system, PAPPL_LOGLEVEL_ERROR,
-		 "Invalid resolution: %s\n", choice->choice);
+		 "Invalid resolution: %s", choice->choice);
 	i --;
 	count --;
 	continue;
@@ -680,7 +711,7 @@ ps_callback(
       else if (j <= 0)
       {
 	papplLog(system, PAPPL_LOGLEVEL_ERROR,
-		 "Invalid resolution: %s, using 300 dpi\n", ppd_attr->value);
+		 "Invalid resolution: %s, using 300 dpi", ppd_attr->value);
 	driver_data->x_resolution[0] = 300;
 	driver_data->y_resolution[0] = 300;
       }
@@ -688,7 +719,7 @@ ps_callback(
     else
     {
       papplLog(system, PAPPL_LOGLEVEL_WARN,
-	       "No default resolution, using 300 dpi\n");
+	       "No default resolution, using 300 dpi");
       driver_data->x_resolution[0] = 300;
       driver_data->y_resolution[0] = 300;
     }
@@ -840,7 +871,95 @@ ps_callback(
   driver_data->darkness_configured = 0;
   driver_data->darkness_supported = 0;
   driver_data->num_features = 0;
+
+  // For each PPD option which is not supported by PAPPL/IPP add a
+  // vendor option, so that the default for the options can get set in
+  // the web interface or settings of these options can be supplied on
+  // the command line.
+
+  // Go through all the options of the PPD file
   driver_data->num_vendor = 0;
+  for (i = ppd->num_groups, group = ppd->groups;
+       i > 0;
+       i --, group ++)
+  {
+    // Skip the group for installable options as we do not (yet) support
+    // option conflicts/constraints
+    if (strncasecmp(group->name, "Installable", 11) == 0)
+      continue;
+
+    for (j = group->num_options, option = group->options;
+         j > 0;
+         j --, option ++)
+    {
+      // Stop and warn if we have no slot for vendor attributes any more
+      if (driver_data->num_vendor >= PAPPL_MAX_VENDOR)
+      {
+	papplLog(system, PAPPL_LOGLEVEL_WARN,
+		 "Too many options in PPD file, \"%s\" will not be controllable!",
+		 option->keyword);
+	continue;
+      }
+
+      // Is this option already handled by PAPPL/IPP
+      for (k = 0; pappl_handled_options[k]; k ++)
+	if (!strcasecmp(option->keyword, pappl_handled_options[k]))
+	  break;
+      if (pappl_handled_options[k] ||
+	  (pc->source_option &&
+	   !strcasecmp(option->keyword, pc->source_option)) ||
+	  (pc->sides_option &&
+	   !strcasecmp(option->keyword, pc->sides_option)))
+	continue;
+
+      // IPP-style names
+      ppdPwgUnppdizeName(option->text, ipp_opt, sizeof(ipp_opt), NULL);
+      snprintf(ipp_supported, sizeof(ipp_supported), "%s-supported", ipp_opt);
+      snprintf(ipp_default, sizeof(ipp_default), "%s-default", ipp_opt);
+
+      // Add vendor option and its choices to driver IPP attributes
+      if (option->ui == PPD_UI_PICKONE || option->ui == PPD_UI_BOOLEAN)
+      {
+	papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+		 "Adding vendor-specific option \"%s\" (\"%s\") as IPP option "
+		 "\"%s\"", option->keyword, option->text, ipp_opt);
+	if (*driver_attrs == NULL)
+	  *driver_attrs = ippNew();
+	choice_list = (char **)calloc(option->num_choices, sizeof(char *));
+	default_choice = 0;
+	for (k = 0; k < option->num_choices; k ++)
+        {
+	  ppdPwgUnppdizeName(option->choices[k].text,
+			     ipp_choice, sizeof(ipp_choice), NULL);
+	  choice_list[k] = strdup(ipp_choice);
+	  if (option->choices[k].marked)
+	    default_choice = k;
+	  papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+		   "  Adding choice \"%s\" (\"%s\") as \"%s\"%s",
+		   option->choices[k].choice, option->choices[k].text,
+		   ipp_choice, option->choices[k].marked ? " (default)" : "");
+	}
+	ippAddStrings(*driver_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
+		      ipp_supported, option->num_choices, NULL,
+		      (const char * const *)choice_list);
+	ippAddString(*driver_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
+		     ipp_default, NULL, choice_list[default_choice]);
+	for (k = 0; k < option->num_choices; k ++)
+	  free(choice_list[k]);
+	free(choice_list);
+      }
+      else
+	continue;
+
+      // Add vendor option to lookup lists
+      driver_data->vendor[driver_data->num_vendor] = strdup(ipp_opt);
+      extension->vendor_ppd_options[driver_data->num_vendor] =
+	strdup(option->keyword);
+
+      // Next entry ...
+      driver_data->num_vendor ++;
+    }
+  }
 
   ppdClose(ppd);
 
@@ -875,6 +994,7 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
 					 pappl_pr_options_t *job_options)
 {
   int                   i, j, count;
+  ps_driver_extension_t *extension;
   ps_job_data_t         *job_data;      // PPD data for job
   ppd_cache_t           *pc;
   pappl_pr_driver_data_t driver_data;   // Printer driver data
@@ -899,6 +1019,7 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
   ppd_choice_t          *choice;        // Choice in PPD option
   ppd_attr_t            *ppd_attr;
   pwg_map_t             *pwg_map;
+  char                  *ptr;
   int                   jobcanceled = 0;// Is job canceled?
   pappl_printer_t       *printer = papplJobGetPrinter(job);
 
@@ -910,7 +1031,8 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
   job_data = (ps_job_data_t *)calloc(1, sizeof(ps_job_data_t));
 
   papplPrinterGetDriverData(printer, &driver_data);
-  ppd_path = (const char *)driver_data.extension;
+  extension = (ps_driver_extension_t *)driver_data.extension;
+  ppd_path = extension->ppd_path;
   if ((job_data->ppd =
        ppdOpen2(ppdCollectionGetPPD(ppd_path, NULL,
 				    (filter_logfunc_t)papplLogJob, job))) ==
@@ -921,7 +1043,7 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
 
     err = ppdLastError(&line);
     papplLogJob(job, PAPPL_LOGLEVEL_ERROR,
-		"PPD %s: %s on line %d\n", ppd_path,
+		"PPD %s: %s on line %d", ppd_path,
 		ppdErrorString(err), line);
     return (NULL);
   }
@@ -1203,6 +1325,57 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
       job_data->num_options = cupsAddOption("OutputBin", choicestr,
 					    job_data->num_options,
 					    &(job_data->options));
+  }
+
+  //
+  // Add vendor-specific PPD options
+  //
+
+  for (i = 0; i < driver_data.num_vendor; i ++)
+  {
+    papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: %s",
+		extension->vendor_ppd_options[i]);
+    if ((attr = papplJobGetAttribute(job, driver_data.vendor[i])) == NULL)
+    {
+      snprintf(buf, sizeof(buf), "%s-default", driver_data.vendor[i]);
+      attr = ippFindAttribute(driver_attrs, buf, IPP_TAG_ZERO);
+    }
+
+    choicestr = NULL;
+    if (attr)
+    {
+      ptr = strdup(ippGetString(attr, 0, NULL));
+      snprintf(buf, sizeof(buf), "%s-supported", driver_data.vendor[i]);
+      attr = ippFindAttribute(driver_attrs, buf, IPP_TAG_ZERO);
+      if (attr == NULL)
+      {
+	// Should never happen
+	papplLogJob(job, PAPPL_LOGLEVEL_ERROR,
+		    "  IPP Option not correctly registered (bug), "
+		    "skipping ...");
+	continue;
+      }
+      option = ppdFindOption(job_data->ppd, extension->vendor_ppd_options[i]);
+      if (attr == NULL)
+      {
+	// Should never happen
+	papplLogJob(job, PAPPL_LOGLEVEL_ERROR,
+		    "  PPD Option not correctly registered (bug), "
+		    "skipping ...");
+	continue;
+      }
+      for (j = 0; j < ippGetCount(attr); j ++)
+	if (!strcasecmp(ippGetString(attr, j, NULL), ptr))
+	{
+	  choicestr = option->choices[j].choice;
+	  break;
+	}
+      if (choicestr != NULL)
+	job_data->num_options = cupsAddOption(extension->vendor_ppd_options[i],
+					      choicestr, job_data->num_options,
+					      &(job_data->options));
+      free(ptr);
+    }
   }
 
   // XXX "Collate" option
