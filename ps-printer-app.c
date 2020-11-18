@@ -84,6 +84,11 @@ typedef struct ps_job_data_s		// Job data
 #define SYSTEM_VERSION_ARR_3 0
 
 
+// Test page
+
+#define TESTPAGE "testpage.ps"
+#define TESTPAGEDIR "/usr/share/ps-printer-app"
+
 // PPD collections used as drivers
 
 static const char * const col_paths[] =   // PPD collection dirs
@@ -143,6 +148,8 @@ static bool   ps_rwriteline(pappl_job_t *job, pappl_pr_options_t *options,
 			    const unsigned char *pixels);
 static void   ps_setup(pappl_system_t *system);
 static bool   ps_status(pappl_printer_t *printer);
+static const char *ps_testpage(pappl_printer_t *printer, char *buffer,
+			       size_t bufsize);
 static pappl_system_t   *system_cb(int num_options, cups_option_t *options,
 				   void *data);
 
@@ -550,7 +557,7 @@ ps_callback(
   driver_data->rstartpage_cb      = ps_rstartpage;
   driver_data->rwriteline_cb      = ps_rwriteline;
   driver_data->status_cb          = ps_status;
-  driver_data->testpage_cb        = NULL; // XXX Add ps_testpage() function
+  driver_data->testpage_cb        = ps_testpage;
   driver_data->format             = "application/vnd.printer-specific";
   driver_data->orient_default     = IPP_ORIENT_NONE;
   driver_data->quality_default    = IPP_QUALITY_NORMAL;
@@ -2429,6 +2436,48 @@ ps_status(
   // XXX
   
   return (true);
+}
+
+
+//
+// 'ps_testpage()' - Return a test page file to print
+//
+
+static const char *			// O - Filename or `NULL`
+ps_testpage(
+    pappl_printer_t *printer,		// I - Printer
+    char            *buffer,		// I - File Buffer
+    size_t          bufsize)		// I - Buffer Size
+{
+  const char	    *str;		// String pointer
+  pappl_system_t    *system;		// System (for logging)
+
+
+  // Get system for logging...
+  system = papplPrinterGetSystem(printer);
+
+  // Find the right test file...
+  if ((str = getenv("TESTPAGE_DIR")) != NULL)
+    snprintf(buffer, bufsize, "%s/%s", str, TESTPAGE);
+  else if ((str = getenv("TESTPAGE")) != NULL)
+    snprintf(buffer, bufsize, "%s", str);
+  else
+    snprintf(buffer, bufsize, "%s/%s", TESTPAGEDIR, TESTPAGE);
+
+  // Does it actually exist?
+  if (access(buffer, R_OK))
+  {
+    papplLog(system, PAPPL_LOGLEVEL_ERROR,
+	     "Test page %s not found or not readable.", buffer);
+    *buffer = '\0';
+    return (NULL);
+  }
+  else
+  {
+    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+    	     "Using test page: %s", buffer);
+    return (buffer);
+  }
 }
 
 

@@ -163,7 +163,7 @@ ps-printer-app FILE
 You can also add PPD files without rebuilding the Snap. Do
 
 ```
-sudo cp PPDFILE /var/snap/ps-printer-app/current/
+sudo cp PPDFILE /var/snap/ps-printer-app/common/ppd/
 ```
 
 `PPDFILE` cannot only be a single PPD file but any number of single
@@ -223,6 +223,20 @@ PPD_PATHS=/path/to/my/ppds:/my/second/place ./ps-printer-app server
 
 Simply put a colon-separated list of any amount of paths into the
 variable. Creating a wrapper script is recommended.
+
+For access to the test page `testpage.ps` use the TESTPAGE_DIR
+environment variable:
+
+```
+TESTPAGE_DIR=`pwd` PPD_PATHS=/path/to/my/ppds:/my/second/place ./ps-printer-app server
+```
+
+or for your own creation of a test page (PostScript, PDF, PNG, JPEG,
+Apple Raster, PWG Raster):
+
+```
+TESTPAGE=/path/to/my/testpage/my_testpage.ps PPD_PATHS=/path/to/my/ppds:/my/second/place ./ps-printer-app server
+```
 
 
 ## LEGAL STUFF

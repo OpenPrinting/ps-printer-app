@@ -2,8 +2,9 @@
 
 #set -e -x
 
-#mkdir -p $SNAP_DATA/ppds
+mkdir -p $SNAP_COMMON/ppd
 
-export PPD_PATHS=/snap/ps-printer-app/current/usr/share/ppd/:/var/snap/ps-printer-app/current/
+export TESTPAGE_DIR=$SNAP/usr/share/ps-printer-app
+export PPD_PATHS=$SNAP/usr/share/ppd/:$SNAP_COMMON/ppd/
 
 exec $SNAP/usr/bin/ps-printer-app $*
