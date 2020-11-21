@@ -122,6 +122,7 @@ static bool   ps_have_force_gray(ppd_file_t *ppd,
 static void   ps_identify(pappl_printer_t *printer,
 			  pappl_identify_actions_t actions,
 			  const char *message);
+static int    ps_job_is_canceled(void *data);
 static void   ps_job_log(void *data, filter_loglevel_t level,
 			 const char *message, ...);
 static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
@@ -133,8 +134,8 @@ static void   ps_media_col(pwg_size_t *pwg_size, const char *def_source,
 static void   ps_one_bit_dither_on_draft(pappl_job_t *job,
 					 pappl_pr_options_t *options);
 int           ps_print_filter_function(int inputfd, int outputfd,
-				       int inputseekable, int *jobcanceled,
-				       filter_data_t *data, void *parameters);
+				       int inputseekable, filter_data_t *data,
+				       void *parameters);
 static bool   ps_rendjob(pappl_job_t *job, pappl_pr_options_t *options,
 			 pappl_device_t *device);
 static bool   ps_rendpage(pappl_job_t *job, pappl_pr_options_t *options,
@@ -1465,6 +1466,10 @@ ps_filter(
   filter_data.logfunc = ps_job_log; // Job log function catching page counts
                                     // ("PAGE: XX YY" messages)
   filter_data.logdata = job;
+  filter_data.iscanceledfunc = ps_job_is_canceled; // Function to indicate
+                                                   // whether the job got
+                                                   // canceled
+  filter_data.iscanceleddata = job;
 
   //
   // Set up filter function chain
@@ -1493,7 +1498,7 @@ ps_filter(
   // The filter chain has no output, data is going to the device
   nullfd = open("/dev/null", O_RDWR);
 
-  if (filterChain(fd, nullfd, 1, &jobcanceled, &filter_data, chain) == 0)
+  if (filterChain(fd, nullfd, 1, &filter_data, chain) == 0)
     ret = true;
 
   //
@@ -1622,6 +1627,22 @@ ps_identify(
 
 
 //
+// 'ps_job_is_canceled()' - Return 1 if the job is canceled, which is
+//                          the case when papplJobIsCanceled() returns
+//                          true.
+//
+
+static int
+ps_job_is_canceled(void *data)
+{
+  pappl_job_t *job = (pappl_job_t *)data;
+
+
+  return (papplJobIsCanceled(job) ? 1 : 0);
+}
+
+
+//
 // 'ps_job_log()' - Job log function which calls
 //                  papplJobSetImpressionsCompleted() on page logs of
 //                  filter functions
@@ -1637,6 +1658,7 @@ ps_job_log(void *data,
   pappl_job_t *job = (pappl_job_t *)data;
   char buf[1024];
   int page, copies;
+
 
   va_start(arglist, message);
   vsnprintf(buf, sizeof(buf) - 1, message, arglist);
@@ -1762,9 +1784,6 @@ ps_print_filter_function(int inputfd,         // I - File descriptor input
 			                      //     stream (unused)
 			 int inputseekable,   // I - Is input stream
 			                      //     seekable? (unused)
-		         int *jobcanceled,    // I - Pointer to integer
-                                              //     marking whether job is
-			                      //     canceled
 			 filter_data_t *data, // I - Job and printer data
 			 void *parameters)    // I - PAPPL output device
 {
@@ -1778,8 +1797,7 @@ ps_print_filter_function(int inputfd,         // I - File descriptor input
   (void)inputseekable;
 
   //int fd = open("/tmp/printout", O_CREAT | O_WRONLY);
-  while ((bytes = read(inputfd, buffer, sizeof(buffer))) > 0 &&
-	 !*jobcanceled)
+  while ((bytes = read(inputfd, buffer, sizeof(buffer))) > 0)
   {
     //write(fd, buffer, (size_t)bytes);
     if (papplDeviceWrite(device, buffer, (size_t)bytes) < 0)
@@ -1837,6 +1855,8 @@ ps_rendjob(
 
   filter_data.logfunc = ps_job_log;
   filter_data.logdata = job;
+  filter_data.iscanceledfunc = ps_job_is_canceled;
+  filter_data.iscanceleddata = job;
   fclose(job_data->device_file);
   filterPClose(job_data->device_fd, job_data->device_pid, &filter_data);
 
@@ -1908,7 +1928,6 @@ ps_rstartjob(
   ps_job_data_t      *job_data;      // PPD data for job
   const char	     *job_name;
   int                nullfd;
-  int                jobcanceled = 0;
   filter_data_t      filter_data;
   FILE               *devout;
 
@@ -1916,6 +1935,9 @@ ps_rstartjob(
   filter_data.logfunc = ps_job_log; // Job log function catching page counts
                                     // ("PAGE: XX YY" messages)
   filter_data.logdata = job;
+  // Function to indicate that the job got canceled
+  filter_data.iscanceledfunc = ps_job_is_canceled;
+  filter_data.iscanceleddata = job;
   // Load PPD file and determine the PPD options equivalent to the job options
   job_data = ps_create_job_data(job, options);
   // The filter has no output, data is going directly to the device
@@ -1923,7 +1945,7 @@ ps_rstartjob(
   // Create file descriptor/pipe to which the functions of libppd can send
   // the data so that it gets passed on to the device
   job_data->device_fd = filterPOpen(ps_print_filter_function, -1, nullfd,
-				    0, &jobcanceled, &filter_data, device,
+				    0, &filter_data, device,
 				    &(job_data->device_pid));
   if (job_data->device_fd < 0)
     return (false);
