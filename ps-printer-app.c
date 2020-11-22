@@ -909,6 +909,11 @@ ps_callback(
 	continue;
       }
 
+      // Does the option have less than 2 choices? Then it does not make
+      // sense to let it show in the web interface
+      if (option->num_choices < 2)
+	continue;
+
       // Is this option already handled by PAPPL/IPP
       for (k = 0; pappl_handled_options[k]; k ++)
 	if (!strcasecmp(option->keyword, pappl_handled_options[k]))
