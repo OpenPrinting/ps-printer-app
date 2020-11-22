@@ -2461,6 +2461,16 @@ ps_status(
 
   // Use commandtops CUPS filter code to check status here (ink levels, ...)
   // XXX
+
+  // Do PostScript jobs for pollingonly once a minute or once every five
+  // minutes, therefore save time of last call in a static variable. and
+  // only poll again if last poll is older than given time.
+
+  // First check installable options as long as they can be polled, update
+  // driver_data
+
+  // Then Check media-ready: Set tray and then poll PageSize and MediaType,
+  // update driver_data
   
   return (true);
 }
