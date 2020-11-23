@@ -941,28 +941,51 @@ ps_callback(
 		 "\"%s\"", option->keyword, option->text, ipp_opt);
 	if (*driver_attrs == NULL)
 	  *driver_attrs = ippNew();
-	choice_list = (char **)calloc(option->num_choices, sizeof(char *));
-	default_choice = 0;
-	for (k = 0; k < option->num_choices; k ++)
-        {
-	  ppdPwgUnppdizeName(option->choices[k].text,
-			     ipp_choice, sizeof(ipp_choice), NULL);
-	  choice_list[k] = strdup(ipp_choice);
-	  if (option->choices[k].marked)
-	    default_choice = k;
+	if (option->num_choices == 2 &&
+	    ((!strcasecmp(option->choices[0].text, "true") &&
+	      !strcasecmp(option->choices[1].text, "false")) ||
+	     (!strcasecmp(option->choices[0].text, "false") &&
+	      !strcasecmp(option->choices[1].text, "true"))))
+	{
+	  // Create a boolean IPP option, as human-readable choices "true"
+	  // and "false" are not very user-friendly
+	  default_choice = 0;
+	  for (k = 0; k < 2; k ++)
+	    if (option->choices[k].marked &&
+		!strcasecmp(option->choices[k].text, "true"))
+	      default_choice = 1;
 	  papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-		   "  Adding choice \"%s\" (\"%s\") as \"%s\"%s",
-		   option->choices[k].choice, option->choices[k].text,
-		   ipp_choice, option->choices[k].marked ? " (default)" : "");
+		   "  Default: %s", (default_choice ? "true" : "false"));
+	  ippAddBoolean(*driver_attrs, IPP_TAG_PRINTER, ipp_supported, 1);
+	  ippAddBoolean(*driver_attrs, IPP_TAG_PRINTER, ipp_default,
+			default_choice);
 	}
-	ippAddStrings(*driver_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
-		      ipp_supported, option->num_choices, NULL,
-		      (const char * const *)choice_list);
-	ippAddString(*driver_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
-		     ipp_default, NULL, choice_list[default_choice]);
-	for (k = 0; k < option->num_choices; k ++)
-	  free(choice_list[k]);
-	free(choice_list);
+	else
+	{
+	  // Create an enumerated-choice IPP option
+	  choice_list = (char **)calloc(option->num_choices, sizeof(char *));
+	  default_choice = 0;
+	  for (k = 0; k < option->num_choices; k ++)
+	  {
+	    ppdPwgUnppdizeName(option->choices[k].text,
+			       ipp_choice, sizeof(ipp_choice), NULL);
+	    choice_list[k] = strdup(ipp_choice);
+	    if (option->choices[k].marked)
+	      default_choice = k;
+	    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+		     "  Adding choice \"%s\" (\"%s\") as \"%s\"%s",
+		     option->choices[k].choice, option->choices[k].text,
+		     ipp_choice, option->choices[k].marked ? " (default)" : "");
+	  }
+	  ippAddStrings(*driver_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
+			ipp_supported, option->num_choices, NULL,
+			(const char * const *)choice_list);
+	  ippAddString(*driver_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
+		       ipp_default, NULL, choice_list[default_choice]);
+	  for (k = 0; k < option->num_choices; k ++)
+	    free(choice_list[k]);
+	  free(choice_list);
+	}
       }
       else
 	continue;
@@ -1372,7 +1395,7 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
 	continue;
       }
       option = ppdFindOption(job_data->ppd, extension->vendor_ppd_options[i]);
-      if (attr == NULL)
+      if (option == NULL)
       {
 	// Should never happen
 	papplLogJob(job, PAPPL_LOGLEVEL_ERROR,
@@ -1380,12 +1403,20 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
 		    "skipping ...");
 	continue;
       }
-      for (j = 0; j < ippGetCount(attr); j ++)
-	if (!strcasecmp(ippGetString(attr, j, NULL), ptr))
-	{
-	  choicestr = option->choices[j].choice;
-	  break;
-	}
+      if (ippGetValueTag(attr) == IPP_TAG_BOOLEAN)
+      {
+	if (!strcasecmp("true", ptr))
+	  choicestr = "True";
+	else if (!strcasecmp("false", ptr))
+	  choicestr = "False";
+      }
+      else
+	for (j = 0; j < ippGetCount(attr); j ++)
+	  if (!strcasecmp(ippGetString(attr, j, NULL), ptr))
+	  {
+	    choicestr = option->choices[j].choice;
+	    break;
+	  }
       if (choicestr != NULL)
 	job_data->num_options = cupsAddOption(extension->vendor_ppd_options[i],
 					      choicestr, job_data->num_options,
