@@ -1192,6 +1192,20 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
 					  &(job_data->options));
   }
 
+  // OutputBin/output-bin
+  if ((count = pc->num_bins) > 0)
+  {
+    papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: OutputBin");
+    val = job_options->output_bin;
+    for (i = 0, pwg_map = pc->bins; i < count; i ++, pwg_map ++)
+      if (!strcmp(pwg_map->pwg, val))
+	choicestr = pwg_map->ppd;
+    if (choicestr != NULL)
+      job_data->num_options = cupsAddOption("OutputBin", choicestr,
+					    job_data->num_options,
+					    &(job_data->options));
+  }
+
   // Presets, selected by color/bw and print quality
   papplLogJob(job, PAPPL_LOGLEVEL_DEBUG,
 	      "Adding option presets depending on requested print quality");
@@ -1329,38 +1343,6 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
 	     pc->sides_2sided_short)
       job_data->num_options = cupsAddOption(pc->sides_option,
 					    pc->sides_2sided_short,
-					    job_data->num_options,
-					    &(job_data->options));
-  }
-
-  //
-  // Find further options directly from the job IPP attributes
-  //
-
-  // OutputBin/output-bin
-  if ((count = pc->num_bins) > 0)
-  {
-    papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: OutputBin");
-    if ((attr = papplJobGetAttribute(job, "output-bin")) == NULL)
-      attr = ippFindAttribute(driver_attrs, "output-bin-default",
-			      IPP_TAG_ZERO);
-    choicestr = NULL;
-    if (attr)
-    {
-      val = ippGetString(attr, 0, NULL);
-      for (i = 0, pwg_map = pc->bins; i < count; i ++, pwg_map ++)
-	if (!strcmp(pwg_map->pwg, val))
-	  choicestr = pwg_map->ppd;
-    }
-    if (choicestr == NULL)
-    {
-      val = driver_data.bin[driver_data.bin_default];
-      for (i = 0, pwg_map = pc->bins; i < count; i ++, pwg_map ++)
-	if (!strcmp(pwg_map->pwg, val))
-	  choicestr = pwg_map->ppd;
-    }
-    if (choicestr != NULL)
-      job_data->num_options = cupsAddOption("OutputBin", choicestr,
 					    job_data->num_options,
 					    &(job_data->options));
   }
