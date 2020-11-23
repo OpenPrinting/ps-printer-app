@@ -864,8 +864,7 @@ ps_callback(
   }
   else
   {
-    driver_data->num_bin = 1;
-    driver_data->bin[0] = "auto";
+    driver_data->num_bin = 0;
     driver_data->bin_default = 0;
   }
 
