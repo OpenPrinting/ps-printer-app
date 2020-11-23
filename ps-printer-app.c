@@ -478,10 +478,13 @@ ps_callback(
   if (strcasecmp(driver_name, "auto") == 0)
   {
     // Auto-select driver
+    papplLog(system, PAPPL_LOGLEVEL_INFO,
+	     "Automatic printer driver selection for device with URI \"%s\" "
+	     "and device ID \"%s\" ...", device_uri, device_id);
     search_ppd_path.driver_name = ps_autoadd(NULL, device_uri, device_id, NULL);
     if (search_ppd_path.driver_name)
       papplLog(system, PAPPL_LOGLEVEL_INFO,
-	       "Automatic printer driver selection, using \"%s\".",
+	       "Automatically selected driver \"%s\".",
 	       search_ppd_path.driver_name);
     else
     {
