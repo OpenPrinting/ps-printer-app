@@ -474,50 +474,17 @@ ps_callback(
   // cache
   //
 
- retry:
-  if (strcasecmp(driver_name, "auto") == 0)
-  {
-    // Auto-select driver
-    papplLog(system, PAPPL_LOGLEVEL_INFO,
-	     "Automatic printer driver selection for device with URI \"%s\" "
-	     "and device ID \"%s\" ...", device_uri, device_id);
-    search_ppd_path.driver_name = ps_autoadd(NULL, device_uri, device_id, NULL);
-    if (search_ppd_path.driver_name)
-      papplLog(system, PAPPL_LOGLEVEL_INFO,
-	       "Automatically selected driver \"%s\".",
-	       search_ppd_path.driver_name);
-    else
-    {
-      papplLog(system, PAPPL_LOGLEVEL_ERROR,
-	       "Automatic printer driver selection for printer "
-	       "\"%s\" with device ID \"%s\" failed.",
-	       device_uri, device_id);
-      return (false);
-    }
-  }
-  else
-    search_ppd_path.driver_name = driver_name;
-
+  papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	   "Using driver named: \"%s\"", driver_name);
+  search_ppd_path.driver_name = driver_name;
   ppd_path = (ps_ppd_path_t *)cupsArrayFind(ppd_paths, &search_ppd_path);
-
   if (ppd_path == NULL)
   {
-    if (strcasecmp(driver_name, "auto") == 0)
-    {
-      papplLog(system, PAPPL_LOGLEVEL_ERROR,
-	       "For the printer driver \"%s\" got auto-selected which does not "
-	       "exist in this Printer Application.",
-	       search_ppd_path.driver_name);
-      return (false);
-    }
-    else
-    {
-      papplLog(system, PAPPL_LOGLEVEL_WARN,
-	       "Printer uses driver \"%s\" which does not exist in this "
-	       "Printer Application, switching to \"auto\".", driver_name);
-      driver_name = "auto";
-      goto retry;
-    }
+    papplLog(system, PAPPL_LOGLEVEL_ERROR,
+	     "The printer driver \"%s\" does not "
+	     "exist in this Printer Application.",
+	     search_ppd_path.driver_name);
+    return (false);
   }
 
   if ((ppd = ppdOpen2(ppdCollectionGetPPD(ppd_path->ppd_path, NULL,
@@ -2238,7 +2205,6 @@ ps_setup(pappl_system_t *system)      // I - System
     num_drivers = cupsArrayCount(ppds);
     papplLog(system, PAPPL_LOGLEVEL_DEBUG,
 	     "Found %d PPD files.", num_drivers);
-    num_drivers ++; // For "Auto"
     // Search for a generic PPD to use as generic PostScript driver
     generic_ppd = NULL;
     for (ppd = (ppd_info_t *)cupsArrayFirst(ppds);
@@ -2264,12 +2230,6 @@ ps_setup(pappl_system_t *system)      // I - System
     // Create driver indices
     drivers = (pappl_pr_driver_t *)calloc(num_drivers + PPD_MAX_PROD,
 					  sizeof(pappl_pr_driver_t));
-    // Add entry for "auto" driver selection (not yet implemented)
-    drivers[i].name = strdup("auto");
-    drivers[i].description = strdup("Automatic Selection");
-    drivers[i].device_id = strdup("CMD:POSTSCRIPT;");
-    drivers[i].extension = strdup(" auto");
-    i ++;
     if (generic_ppd)
     {
       drivers[i].name = strdup("generic");
@@ -2434,7 +2394,7 @@ ps_setup(pappl_system_t *system)      // I - System
     papplLog(system, PAPPL_LOGLEVEL_FATAL, "No PPD files found.");
 
   papplSystemSetPrinterDrivers(system, num_drivers, drivers,
-			       ps_callback, ppd_paths);
+			       ps_autoadd, ps_callback, ppd_paths);
 
   //
   // Add filters for the different input data formats
