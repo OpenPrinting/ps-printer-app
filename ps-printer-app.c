@@ -474,17 +474,50 @@ ps_callback(
   // cache
   //
 
-  papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-	   "Using driver named: \"%s\"", driver_name);
-  search_ppd_path.driver_name = driver_name;
+ retry:
+  if (strcasecmp(driver_name, "auto") == 0)
+  {
+    // Auto-select driver
+    papplLog(system, PAPPL_LOGLEVEL_INFO,
+	     "Automatic printer driver selection for device with URI \"%s\" "
+	     "and device ID \"%s\" ...", device_uri, device_id);
+    search_ppd_path.driver_name = ps_autoadd(NULL, device_uri, device_id, NULL);
+    if (search_ppd_path.driver_name)
+      papplLog(system, PAPPL_LOGLEVEL_INFO,
+	       "Automatically selected driver \"%s\".",
+	       search_ppd_path.driver_name);
+    else
+    {
+      papplLog(system, PAPPL_LOGLEVEL_ERROR,
+	       "Automatic printer driver selection for printer "
+	       "\"%s\" with device ID \"%s\" failed.",
+	       device_uri, device_id);
+      return (false);
+    }
+  }
+  else
+    search_ppd_path.driver_name = driver_name;
+
   ppd_path = (ps_ppd_path_t *)cupsArrayFind(ppd_paths, &search_ppd_path);
+
   if (ppd_path == NULL)
   {
-    papplLog(system, PAPPL_LOGLEVEL_ERROR,
-	     "The printer driver \"%s\" does not "
-	     "exist in this Printer Application.",
-	     search_ppd_path.driver_name);
-    return (false);
+    if (strcasecmp(driver_name, "auto") == 0)
+    {
+      papplLog(system, PAPPL_LOGLEVEL_ERROR,
+	       "For the printer driver \"%s\" got auto-selected which does not "
+	       "exist in this Printer Application.",
+	       search_ppd_path.driver_name);
+      return (false);
+    }
+    else
+    {
+      papplLog(system, PAPPL_LOGLEVEL_WARN,
+	       "Printer uses driver \"%s\" which does not exist in this "
+	       "Printer Application, switching to \"auto\".", driver_name);
+      driver_name = "auto";
+      goto retry;
+    }
   }
 
   if ((ppd = ppdOpen2(ppdCollectionGetPPD(ppd_path->ppd_path, NULL,
