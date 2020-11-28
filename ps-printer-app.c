@@ -168,8 +168,8 @@ main(int  argc,				// I - Number of command-line arguments
 			NULL,           // HTML Footer for web interface
 			0,              // Number of drivers for built-in setup
 			NULL,           // Driver list for built-in setup
-			NULL,           // Setup callback for selected driver
 			ps_autoadd,     // Printer auto-addition callback
+			NULL,           // Setup callback for selected driver
 			NULL,           // Sub-command name
 			NULL,           // Callback for sub-command
 			system_cb,      // System creation callback
@@ -2427,7 +2427,7 @@ ps_setup(pappl_system_t *system)      // I - System
     papplLog(system, PAPPL_LOGLEVEL_FATAL, "No PPD files found.");
 
   papplSystemSetPrinterDrivers(system, num_drivers, drivers,
-			       ps_autoadd, ps_callback, ppd_paths);
+			       ps_autoadd, NULL, ps_callback, ppd_paths);
 
   //
   // Add filters for the different input data formats
