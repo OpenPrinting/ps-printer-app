@@ -306,7 +306,7 @@ ps_autoadd(const char *device_info,	// I - Device name (unused)
   (void)device_uri;
   (void)data;
 
-  if (device_id == NULL)
+  if (device_id == NULL || num_drivers == 0 || drivers == NULL)
     return (NULL);
 
   // Parse the IEEE-1284 device ID to see if this is a printer we support...
@@ -389,7 +389,7 @@ ps_autoadd(const char *device_info,	// I - Device name (unused)
 
   // PostScript printer but none of the PPDs matches? Assign the generic PPD
   // if we have one
-  if (strcasecmp(drivers[1].name, "generic"))
+  if (strcasecmp(drivers[0].name, "generic"))
     ret = "generic";
 
  done:
