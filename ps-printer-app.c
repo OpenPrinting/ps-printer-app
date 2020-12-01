@@ -113,6 +113,8 @@ static void   ps_ascii85(FILE *outputfp, const unsigned char *data, int length,
 static int    ps_compare_ppd_paths(void *a, void *b, void *data); 
 static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
 					 pappl_pr_options_t *job_options);
+static void   ps_driver_delete(pappl_printer_t *printer,
+			       pappl_pr_driver_data_t *driver_data);
 static bool   ps_driver_setup(pappl_system_t *system, const char *driver_name,
 			      const char *device_uri, const char *device_id,
 			      pappl_pr_driver_data_t *driver_data,
@@ -816,6 +818,58 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
 
 
 //
+// 'ps_driver_delete()' - Free dynamic data structures of the driver when
+//                        removing a printer.
+//
+
+static void   ps_driver_delete(
+    pappl_printer_t *printer,              // I - Printer to be removed
+    pappl_pr_driver_data_t *driver_data)   // I - Printer's driver data
+{
+  int               i;
+  pappl_system_t    *system;		   // System (for logging)
+  ps_driver_extension_t *extension;
+
+
+  // Get system for logging...
+  system = papplPrinterGetSystem(printer);
+
+  papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	   "Freeing memory from driver data of printer %s",
+	   papplPrinterGetName(printer));
+
+  extension = (ps_driver_extension_t *)driver_data->extension;
+
+  // Media source
+  for (i = 0; i < driver_data->num_source; i ++)
+    free((char *)(driver_data->source[i]));
+
+  // Media type
+  for (i = 0; i < driver_data->num_type; i ++)
+    free((char *)(driver_data->type[i]));
+
+  // Media size
+  for (i = 0; i < driver_data->num_media; i ++)
+    free((char *)(driver_data->media[i]));
+
+  // Output bins
+  for (i = 0; i < driver_data->num_bin; i ++)
+    free((char *)(driver_data->bin[i]));
+
+  // Vendor options
+  for (i = 0; i < driver_data->num_vendor; i ++)
+  {
+    free((char *)(driver_data->vendor[i]));
+    free((char *)(extension->vendor_ppd_options[i]));
+  }
+
+  // Extension
+  free((char *)(extension->ppd_path));
+  free(extension);
+}
+
+
+//
 // 'ps_driver_setup()' - PostScript driver setup callback.
 //
 
@@ -966,6 +1020,7 @@ ps_driver_setup(
     (ps_driver_extension_t *)calloc(1, sizeof(ps_driver_extension_t));
   extension = (ps_driver_extension_t *)driver_data->extension;
   extension->ppd_path = strdup(ppd_path->ppd_path);
+  driver_data->delete_cb          = ps_driver_delete;
   driver_data->identify_cb        = ps_identify;
   driver_data->identify_default   = PAPPL_IDENTIFY_ACTIONS_SOUND;
   driver_data->identify_supported = PAPPL_IDENTIFY_ACTIONS_DISPLAY |
@@ -1008,7 +1063,7 @@ ps_driver_setup(
   else
     driver_data->output_face_up = false;
 
-  // No orientationrequested by default
+  // No orientation requested by default
   driver_data->orient_default = IPP_ORIENT_NONE;
 
   // Supported color modes
@@ -1175,7 +1230,7 @@ ps_driver_setup(
   else
   {
     driver_data->num_source = 1;
-    driver_data->source[0] = "auto";
+    driver_data->source[0] = strdup("default");
     def_source = driver_data->source[0];
   }
 
@@ -1199,7 +1254,7 @@ ps_driver_setup(
   else
   {
     driver_data->num_type = 1;
-    driver_data->type[0] = "auto";
+    driver_data->type[0] = strdup("auto");
     def_type = driver_data->type[0];
   }
 
