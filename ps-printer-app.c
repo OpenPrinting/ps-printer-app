@@ -110,11 +110,13 @@ static const char *ps_autoadd(const char *device_info, const char *device_uri,
 			      const char *device_id, void *data);
 static void   ps_ascii85(FILE *outputfp, const unsigned char *data, int length,
 			 int last_data);
-static bool   ps_callback(pappl_system_t *system, const char *driver_name,
-			  const char *device_uri, const char *device_id,
-			  pappl_pr_driver_data_t *driver_data,
-			  ipp_t **driver_attrs, void *data);
 static int    ps_compare_ppd_paths(void *a, void *b, void *data); 
+static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
+					 pappl_pr_options_t *job_options);
+static bool   ps_driver_setup(pappl_system_t *system, const char *driver_name,
+			      const char *device_uri, const char *device_id,
+			      pappl_pr_driver_data_t *driver_data,
+			      ipp_t **driver_attrs, void *data);
 bool          ps_filter(pappl_job_t *job, pappl_device_t *device, void *data);
 static void   ps_free_job_data(ps_job_data_t *job_data);
 static bool   ps_have_force_gray(ppd_file_t *ppd,
@@ -125,8 +127,6 @@ static void   ps_identify(pappl_printer_t *printer,
 static int    ps_job_is_canceled(void *data);
 static void   ps_job_log(void *data, filter_loglevel_t level,
 			 const char *message, ...);
-static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
-					 pappl_pr_options_t *job_options);
 static void   ps_media_col(pwg_size_t *pwg_size, const char *def_source,
 			   const char *def_type, int left_offset,
 			   int top_ofsset, pappl_media_tracking_t tracking,
@@ -400,12 +400,428 @@ ps_autoadd(const char *device_info,	// I - Device name (unused)
 
 
 //
-// 'ps_callback()' - PostScript callback.
+// 'ps_compare_ppd_paths()' - Compare function for sorting PPD path array
+//
+
+static int
+ps_compare_ppd_paths(void *a,
+		     void *b,
+		     void *data)
+{
+  ps_ppd_path_t *aa = (ps_ppd_path_t *)a;
+  ps_ppd_path_t *bb = (ps_ppd_path_t *)b;
+
+  (void)data;
+  return (strcmp(aa->driver_name, bb->driver_name));
+}
+
+
+//
+// 'ps_create_job_data()' - Load the printer's PPD file and set the PPD options
+//                          according to the job options
+//
+
+static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
+					 pappl_pr_options_t *job_options)
+{
+  int                   i, j, count;
+  ps_driver_extension_t *extension;
+  ps_job_data_t         *job_data;      // PPD data for job
+  ppd_cache_t           *pc;
+  pappl_pr_driver_data_t driver_data;   // Printer driver data
+  const char            *ppd_path;
+  cups_option_t         *opt;
+  ipp_t                 *driver_attrs;  // Printer (driver) IPP attributes
+  char                  buf[1024];      // Buffer for building strings
+  const char            *optstr,        // Option name from PPD option
+                        *choicestr,     // Choice name from PPD option
+                        *val;           // Value string from IPP option
+  ipp_t                 *attrs;         // IPP Attributes structure
+  ipp_t		        *media_col,	// media-col IPP structure
+                        *media_size;	// media-size IPP structure
+  int                   xres, yres;
+  ipp_attribute_t       *attr;
+  int                   pcm;            // Print color mode: 0: mono,
+                                        // 1: color (for presets)
+  int                   pq;             // IPP Print quality value (for presets)
+  int		        num_presets;	// Number of presets
+  cups_option_t	        *presets;       // Presets of PPD options
+  ppd_option_t          *option;        // PPD option
+  ppd_choice_t          *choice;        // Choice in PPD option
+  ppd_attr_t            *ppd_attr;
+  pwg_map_t             *pwg_map;
+  char                  *ptr;
+  int                   jobcanceled = 0;// Is job canceled?
+  pappl_printer_t       *printer = papplJobGetPrinter(job);
+
+  //
+  // Load the printer's assigned PPD file, mark the defaults, and create the
+  // cache
+  //
+
+  job_data = (ps_job_data_t *)calloc(1, sizeof(ps_job_data_t));
+
+  papplPrinterGetDriverData(printer, &driver_data);
+  extension = (ps_driver_extension_t *)driver_data.extension;
+  ppd_path = extension->ppd_path;
+  if ((job_data->ppd =
+       ppdOpen2(ppdCollectionGetPPD(ppd_path, NULL,
+				    (filter_logfunc_t)papplLogJob, job))) ==
+      NULL)
+  {
+    ppd_status_t	err;		// Last error in file
+    int			line;		// Line number in file
+
+    err = ppdLastError(&line);
+    papplLogJob(job, PAPPL_LOGLEVEL_ERROR,
+		"PPD %s: %s on line %d", ppd_path,
+		ppdErrorString(err), line);
+    return (NULL);
+  }
+
+  ppdMarkDefaults(job_data->ppd);
+  if ((pc = ppdCacheCreateWithPPD(job_data->ppd)) != NULL)
+    job_data->ppd->cache = pc;
+
+  driver_attrs = papplPrinterGetDriverAttributes(printer);
+
+  //
+  // Find the PPD (or filter) options corresponding to the job options
+  //
+
+  // Job options without PPD equivalent
+  //  - print-content-optimize
+  //  - print-darkness
+  //  - darkness-configured
+  //  - print-speed
+
+  // page-ranges (filter option)
+  if (job_options->first_page == 0)
+    job_options->first_page = 1;
+  if (job_options->last_page == 0)
+    job_options->last_page = INT_MAX;
+  if (job_options->first_page > 1 || job_options->last_page < INT_MAX)
+  {
+    snprintf(buf, sizeof(buf), "%d-%d",
+	     job_options->first_page, job_options->last_page);
+    job_data->num_options = cupsAddOption("page-ranges", buf,
+					  job_data->num_options,
+					  &(job_data->options));
+  }
+
+  // Finishings
+  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding options for finishings");
+  if (job_options->finishings & PAPPL_FINISHINGS_PUNCH)
+    job_data->num_options = ppdCacheGetFinishingOptions(pc, NULL,
+							IPP_FINISHINGS_PUNCH,
+							job_data->num_options,
+							&(job_data->options));
+  if (job_options->finishings & PAPPL_FINISHINGS_STAPLE)
+    job_data->num_options = ppdCacheGetFinishingOptions(pc, NULL,
+							IPP_FINISHINGS_STAPLE,
+							job_data->num_options,
+							&(job_data->options));
+  if (job_options->finishings & PAPPL_FINISHINGS_TRIM)
+    job_data->num_options = ppdCacheGetFinishingOptions(pc, NULL,
+							IPP_FINISHINGS_TRIM,
+							job_data->num_options,
+							&(job_data->options));
+
+  // PageSize/media/media-size/media-size-name
+  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: PageSize");
+  attrs = ippNew();
+  media_col = ippNew();
+  media_size = ippNew();
+  ippAddInteger(media_size, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
+		"x-dimension", job_options->media.size_width);
+  ippAddInteger(media_size, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
+		"y-dimension", job_options->media.size_length);
+  ippAddCollection(media_col, IPP_TAG_PRINTER, "media-size", media_size);
+  ippDelete(media_size);
+  ippAddString(media_col, IPP_TAG_PRINTER, IPP_TAG_KEYWORD, "media-size-name",
+	       NULL, job_options->media.size_name);
+  ippAddInteger(media_col, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
+		"media-left-margin", job_options->media.left_margin);
+  ippAddInteger(media_col, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
+		"media-right-margin", job_options->media.right_margin);
+  ippAddInteger(media_col, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
+		"media-top-margin", job_options->media.top_margin);
+  ippAddInteger(media_col, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
+		"media-bottom-margin", job_options->media.bottom_margin);
+  ippAddCollection(attrs, IPP_TAG_PRINTER, "media-col", media_col);
+  ippDelete(media_col);
+  if ((choicestr = ppdCacheGetPageSize(pc, attrs, NULL, NULL)) != NULL)
+    job_data->num_options = cupsAddOption("PageSize", choicestr,
+					  job_data->num_options,
+					  &(job_data->options));
+  ippDelete(attrs);
+
+  // InputSlot/media-source
+  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: InputSlot");
+  if ((choicestr = ppdCacheGetInputSlot(pc, NULL,
+					job_options->media.source)) !=
+      NULL)
+    job_data->num_options = cupsAddOption("InputSlot", choicestr,
+					  job_data->num_options,
+					  &(job_data->options));
+
+  // MediaType/media-type
+  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: MediaType");
+  if ((choicestr = ppdCacheGetMediaType(pc, NULL,
+					job_options->media.type)) != NULL)
+    job_data->num_options = cupsAddOption("MediaType", choicestr,
+					  job_data->num_options,
+					  &(job_data->options));
+
+  // orientation-requested (filter option)
+  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG,
+	      "Adding option: orientation-requested");
+  if (job_options->orientation_requested >= IPP_ORIENT_PORTRAIT &&
+      job_options->orientation_requested <  IPP_ORIENT_NONE)
+  {
+    snprintf(buf, sizeof(buf), "%d", job_options->orientation_requested);
+    job_data->num_options = cupsAddOption("orientation-requested", buf,
+					  job_data->num_options,
+					  &(job_data->options));
+  }
+
+  // OutputBin/output-bin
+  if ((count = pc->num_bins) > 0)
+  {
+    papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: OutputBin");
+    val = job_options->output_bin;
+    for (i = 0, pwg_map = pc->bins; i < count; i ++, pwg_map ++)
+      if (!strcmp(pwg_map->pwg, val))
+	choicestr = pwg_map->ppd;
+    if (choicestr != NULL)
+      job_data->num_options = cupsAddOption("OutputBin", choicestr,
+					    job_data->num_options,
+					    &(job_data->options));
+  }
+
+  // Presets, selected by color/bw and print quality
+  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG,
+	      "Adding option presets depending on requested print quality");
+  if (job_data->ppd->color_device &&
+      (job_options->print_color_mode &
+       (PAPPL_COLOR_MODE_AUTO | PAPPL_COLOR_MODE_COLOR)) != 0)
+    pcm = 1;
+  else
+    pcm = 0;
+  if (job_options->print_quality == IPP_QUALITY_DRAFT)
+    pq = 0;
+  else if (job_options->print_quality == IPP_QUALITY_HIGH)
+    pq = 2;
+  else
+    pq = 1;
+  num_presets = pc->num_presets[pcm][pq];
+  presets     = pc->presets[pcm][pq];
+  for (i = 0; i < num_presets; i ++)
+    job_data->num_options = cupsAddOption(presets[i].name, presets[i].value,
+					  job_data->num_options,
+					  &(job_data->options));
+
+  // Do we have a way to force grayscale printing?
+  if (pcm == 0)
+  {
+    // Find suitable option in the PPD file and set it if available
+    if (ps_have_force_gray(job_data->ppd, &optstr, &choicestr) &&
+	cupsGetOption(optstr, job_data->num_options,
+		      job_data->options) == NULL)
+      job_data->num_options = cupsAddOption(optstr, choicestr,
+					    job_data->num_options,
+					    &(job_data->options));
+    // Add "ColorModel=Gray" to make filters converting color
+    // input to grayscale
+    if (cupsGetOption("ColorModel", job_data->num_options,
+		      job_data->options) == NULL)
+      job_data->num_options = cupsAddOption("ColorModel", "Gray",
+					    job_data->num_options,
+					    &(job_data->options));
+  }
+
+  // print-scaling (filter option)
+  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: print-scaling");
+  if (job_options->print_scaling)
+  {
+    if (job_options->print_scaling & PAPPL_SCALING_AUTO)
+      job_data->num_options = cupsAddOption("print-scaling", "auto",
+					    job_data->num_options,
+					    &(job_data->options));
+    if (job_options->print_scaling & PAPPL_SCALING_AUTO_FIT)
+      job_data->num_options = cupsAddOption("print-scaling", "auto-fit",
+					    job_data->num_options,
+					    &(job_data->options));
+    if (job_options->print_scaling & PAPPL_SCALING_FILL)
+      job_data->num_options = cupsAddOption("print-scaling", "fill",
+					    job_data->num_options,
+					    &(job_data->options));
+    if (job_options->print_scaling & PAPPL_SCALING_FIT)
+      job_data->num_options = cupsAddOption("print-scaling", "fit",
+					    job_data->num_options,
+					    &(job_data->options));
+    if (job_options->print_scaling & PAPPL_SCALING_NONE)
+      job_data->num_options = cupsAddOption("print-scaling", "none",
+					    job_data->num_options,
+					    &(job_data->options));
+  }
+
+  // Resolution/printer-resolution
+  // Only add a "Resolution" option if there is none yet (from presets)
+  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: Resolution");
+  if (cupsGetOption("Resolution", job_data->num_options,
+		    job_data->options) == NULL)
+  {
+    if ((job_options->printer_resolution[0] &&
+	 ((attr = papplJobGetAttribute(job, "printer-resolution")) != NULL ||
+	  (attr = papplJobGetAttribute(job, "Resolution")) != NULL) &&
+	 (option = ppdFindOption(job_data->ppd, "Resolution")) != NULL &&
+	 (count = option->num_choices) > 0))
+    {
+      for (i = 0, choice = option->choices; i < count; i ++, choice ++)
+      {
+	if ((j = sscanf(choice->choice, "%dx%d", &xres, &yres)) == 1)
+	  yres = xres;
+	else if (j <= 0)
+	  continue;
+	if (job_options->printer_resolution[0] == xres &&
+	    (job_options->printer_resolution[1] == yres ||
+	     (job_options->printer_resolution[1] == 0 && xres == yres)))
+	  break;
+      }
+      if (i < count)
+	job_data->num_options = cupsAddOption("Resolution", choice->choice,
+					      job_data->num_options,
+					      &(job_data->options));
+    }
+    else if (job_options->printer_resolution[0])
+    {
+      if (job_options->printer_resolution[1] &&
+	  job_options->printer_resolution[0] !=
+	  job_options->printer_resolution[1])
+	snprintf(buf, sizeof(buf) - 1, "%dx%ddpi",
+		 job_options->printer_resolution[0],
+		 job_options->printer_resolution[1]);
+      else
+	snprintf(buf, sizeof(buf) - 1, "%ddpi",
+		 job_options->printer_resolution[0]);
+      job_data->num_options = cupsAddOption("Resolution", buf,
+					    job_data->num_options,
+					    &(job_data->options));
+    }
+    else if ((ppd_attr = ppdFindAttr(job_data->ppd, "DefaultResolution",
+				     NULL)) != NULL)
+      job_data->num_options = cupsAddOption("Resolution", ppd_attr->value,
+					    job_data->num_options,
+					    &(job_data->options));
+  }
+
+  // Duplex/sides
+  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: Duplex");
+  if (job_options->sides && pc->sides_option)
+  {
+    if (job_options->sides & PAPPL_SIDES_ONE_SIDED &&
+	pc->sides_1sided)
+      job_data->num_options = cupsAddOption(pc->sides_option,
+					    pc->sides_1sided,
+					    job_data->num_options,
+					    &(job_data->options));
+    else if (job_options->sides & PAPPL_SIDES_TWO_SIDED_LONG_EDGE &&
+	     pc->sides_2sided_long)
+      job_data->num_options = cupsAddOption(pc->sides_option,
+					    pc->sides_2sided_long,
+					    job_data->num_options,
+					    &(job_data->options));
+    else if (job_options->sides & PAPPL_SIDES_TWO_SIDED_SHORT_EDGE &&
+	     pc->sides_2sided_short)
+      job_data->num_options = cupsAddOption(pc->sides_option,
+					    pc->sides_2sided_short,
+					    job_data->num_options,
+					    &(job_data->options));
+  }
+
+  //
+  // Add vendor-specific PPD options
+  //
+
+  for (i = 0; i < driver_data.num_vendor; i ++)
+  {
+    papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: %s",
+		extension->vendor_ppd_options[i]);
+    if ((attr = papplJobGetAttribute(job, driver_data.vendor[i])) == NULL)
+    {
+      snprintf(buf, sizeof(buf), "%s-default", driver_data.vendor[i]);
+      attr = ippFindAttribute(driver_attrs, buf, IPP_TAG_ZERO);
+    }
+
+    choicestr = NULL;
+    if (attr)
+    {
+      ptr = strdup(ippGetString(attr, 0, NULL));
+      snprintf(buf, sizeof(buf), "%s-supported", driver_data.vendor[i]);
+      attr = ippFindAttribute(driver_attrs, buf, IPP_TAG_ZERO);
+      if (attr == NULL)
+      {
+	// Should never happen
+	papplLogJob(job, PAPPL_LOGLEVEL_ERROR,
+		    "  IPP Option not correctly registered (bug), "
+		    "skipping ...");
+	continue;
+      }
+      option = ppdFindOption(job_data->ppd, extension->vendor_ppd_options[i]);
+      if (option == NULL)
+      {
+	// Should never happen
+	papplLogJob(job, PAPPL_LOGLEVEL_ERROR,
+		    "  PPD Option not correctly registered (bug), "
+		    "skipping ...");
+	continue;
+      }
+      if (ippGetValueTag(attr) == IPP_TAG_BOOLEAN)
+      {
+	if (!strcasecmp("true", ptr))
+	  choicestr = "True";
+	else if (!strcasecmp("false", ptr))
+	  choicestr = "False";
+      }
+      else
+	for (j = 0; j < ippGetCount(attr); j ++)
+	  if (!strcasecmp(ippGetString(attr, j, NULL), ptr))
+	  {
+	    choicestr = option->choices[j].choice;
+	    break;
+	  }
+      if (choicestr != NULL)
+	job_data->num_options = cupsAddOption(extension->vendor_ppd_options[i],
+					      choicestr, job_data->num_options,
+					      &(job_data->options));
+      free(ptr);
+    }
+  }
+
+  // XXX "Collate" option
+
+  // Mark options in the PPD file
+  ppdMarkOptions(job_data->ppd, job_data->num_options, job_data->options);
+
+  // Log the option settings which will get used
+  snprintf(buf, sizeof(buf) - 1, "PPD options to be used:");
+  for (i = job_data->num_options, opt = job_data->options; i > 0; i --, opt ++)
+    snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf) - 1,
+	     " %s=%s", opt->name, opt->value);
+  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "%s", buf);
+
+  return (job_data);
+}
+
+
+//
+// 'ps_driver_setup()' - PostScript driver setup callback.
 //
 
 static bool				   // O - `true` on success, `false`
                                            //     on failure
-ps_callback(
+ps_driver_setup(
     pappl_system_t       *system,	   // I - System
     const char           *driver_name,     // I - Driver name
     const char           *device_uri,	   // I - Device URI
@@ -1002,423 +1418,6 @@ ps_callback(
   ppdClose(ppd);
 
   return (true);
-}
-
-
-//
-// 'ps_compare_ppd_paths()' - Compare function for sorting PPD path array
-//
-
-static int
-ps_compare_ppd_paths(void *a,
-		     void *b,
-		     void *data)
-{
-  ps_ppd_path_t *aa = (ps_ppd_path_t *)a;
-  ps_ppd_path_t *bb = (ps_ppd_path_t *)b;
-
-  (void)data;
-  return (strcmp(aa->driver_name, bb->driver_name));
-}
-
-
-
-//
-// 'ps_create_job_data()' - Load the printer's PPD file and set the PPD options
-//                          according to the job options
-//
-
-static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
-					 pappl_pr_options_t *job_options)
-{
-  int                   i, j, count;
-  ps_driver_extension_t *extension;
-  ps_job_data_t         *job_data;      // PPD data for job
-  ppd_cache_t           *pc;
-  pappl_pr_driver_data_t driver_data;   // Printer driver data
-  const char            *ppd_path;
-  cups_option_t         *opt;
-  ipp_t                 *driver_attrs;  // Printer (driver) IPP attributes
-  char                  buf[1024];      // Buffer for building strings
-  const char            *optstr,        // Option name from PPD option
-                        *choicestr,     // Choice name from PPD option
-                        *val;           // Value string from IPP option
-  ipp_t                 *attrs;         // IPP Attributes structure
-  ipp_t		        *media_col,	// media-col IPP structure
-                        *media_size;	// media-size IPP structure
-  int                   xres, yres;
-  ipp_attribute_t       *attr;
-  int                   pcm;            // Print color mode: 0: mono,
-                                        // 1: color (for presets)
-  int                   pq;             // IPP Print quality value (for presets)
-  int		        num_presets;	// Number of presets
-  cups_option_t	        *presets;       // Presets of PPD options
-  ppd_option_t          *option;        // PPD option
-  ppd_choice_t          *choice;        // Choice in PPD option
-  ppd_attr_t            *ppd_attr;
-  pwg_map_t             *pwg_map;
-  char                  *ptr;
-  int                   jobcanceled = 0;// Is job canceled?
-  pappl_printer_t       *printer = papplJobGetPrinter(job);
-
-  //
-  // Load the printer's assigned PPD file, mark the defaults, and create the
-  // cache
-  //
-
-  job_data = (ps_job_data_t *)calloc(1, sizeof(ps_job_data_t));
-
-  papplPrinterGetDriverData(printer, &driver_data);
-  extension = (ps_driver_extension_t *)driver_data.extension;
-  ppd_path = extension->ppd_path;
-  if ((job_data->ppd =
-       ppdOpen2(ppdCollectionGetPPD(ppd_path, NULL,
-				    (filter_logfunc_t)papplLogJob, job))) ==
-      NULL)
-  {
-    ppd_status_t	err;		// Last error in file
-    int			line;		// Line number in file
-
-    err = ppdLastError(&line);
-    papplLogJob(job, PAPPL_LOGLEVEL_ERROR,
-		"PPD %s: %s on line %d", ppd_path,
-		ppdErrorString(err), line);
-    return (NULL);
-  }
-
-  ppdMarkDefaults(job_data->ppd);
-  if ((pc = ppdCacheCreateWithPPD(job_data->ppd)) != NULL)
-    job_data->ppd->cache = pc;
-
-  driver_attrs = papplPrinterGetDriverAttributes(printer);
-
-  //
-  // Find the PPD (or filter) options corresponding to the job options
-  //
-
-  // Job options without PPD equivalent
-  //  - print-content-optimize
-  //  - print-darkness
-  //  - darkness-configured
-  //  - print-speed
-
-  // page-ranges (filter option)
-  if (job_options->first_page == 0)
-    job_options->first_page = 1;
-  if (job_options->last_page == 0)
-    job_options->last_page = INT_MAX;
-  if (job_options->first_page > 1 || job_options->last_page < INT_MAX)
-  {
-    snprintf(buf, sizeof(buf), "%d-%d",
-	     job_options->first_page, job_options->last_page);
-    job_data->num_options = cupsAddOption("page-ranges", buf,
-					  job_data->num_options,
-					  &(job_data->options));
-  }
-
-  // Finishings
-  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding options for finishings");
-  if (job_options->finishings & PAPPL_FINISHINGS_PUNCH)
-    job_data->num_options = ppdCacheGetFinishingOptions(pc, NULL,
-							IPP_FINISHINGS_PUNCH,
-							job_data->num_options,
-							&(job_data->options));
-  if (job_options->finishings & PAPPL_FINISHINGS_STAPLE)
-    job_data->num_options = ppdCacheGetFinishingOptions(pc, NULL,
-							IPP_FINISHINGS_STAPLE,
-							job_data->num_options,
-							&(job_data->options));
-  if (job_options->finishings & PAPPL_FINISHINGS_TRIM)
-    job_data->num_options = ppdCacheGetFinishingOptions(pc, NULL,
-							IPP_FINISHINGS_TRIM,
-							job_data->num_options,
-							&(job_data->options));
-
-  // PageSize/media/media-size/media-size-name
-  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: PageSize");
-  attrs = ippNew();
-  media_col = ippNew();
-  media_size = ippNew();
-  ippAddInteger(media_size, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
-		"x-dimension", job_options->media.size_width);
-  ippAddInteger(media_size, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
-		"y-dimension", job_options->media.size_length);
-  ippAddCollection(media_col, IPP_TAG_PRINTER, "media-size", media_size);
-  ippDelete(media_size);
-  ippAddString(media_col, IPP_TAG_PRINTER, IPP_TAG_KEYWORD, "media-size-name",
-	       NULL, job_options->media.size_name);
-  ippAddInteger(media_col, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
-		"media-left-margin", job_options->media.left_margin);
-  ippAddInteger(media_col, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
-		"media-right-margin", job_options->media.right_margin);
-  ippAddInteger(media_col, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
-		"media-top-margin", job_options->media.top_margin);
-  ippAddInteger(media_col, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
-		"media-bottom-margin", job_options->media.bottom_margin);
-  ippAddCollection(attrs, IPP_TAG_PRINTER, "media-col", media_col);
-  ippDelete(media_col);
-  if ((choicestr = ppdCacheGetPageSize(pc, attrs, NULL, NULL)) != NULL)
-    job_data->num_options = cupsAddOption("PageSize", choicestr,
-					  job_data->num_options,
-					  &(job_data->options));
-  ippDelete(attrs);
-
-  // InputSlot/media-source
-  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: InputSlot");
-  if ((choicestr = ppdCacheGetInputSlot(pc, NULL,
-					job_options->media.source)) !=
-      NULL)
-    job_data->num_options = cupsAddOption("InputSlot", choicestr,
-					  job_data->num_options,
-					  &(job_data->options));
-
-  // MediaType/media-type
-  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: MediaType");
-  if ((choicestr = ppdCacheGetMediaType(pc, NULL,
-					job_options->media.type)) != NULL)
-    job_data->num_options = cupsAddOption("MediaType", choicestr,
-					  job_data->num_options,
-					  &(job_data->options));
-
-  // orientation-requested (filter option)
-  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG,
-	      "Adding option: orientation-requested");
-  if (job_options->orientation_requested >= IPP_ORIENT_PORTRAIT &&
-      job_options->orientation_requested <  IPP_ORIENT_NONE)
-  {
-    snprintf(buf, sizeof(buf), "%d", job_options->orientation_requested);
-    job_data->num_options = cupsAddOption("orientation-requested", buf,
-					  job_data->num_options,
-					  &(job_data->options));
-  }
-
-  // OutputBin/output-bin
-  if ((count = pc->num_bins) > 0)
-  {
-    papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: OutputBin");
-    val = job_options->output_bin;
-    for (i = 0, pwg_map = pc->bins; i < count; i ++, pwg_map ++)
-      if (!strcmp(pwg_map->pwg, val))
-	choicestr = pwg_map->ppd;
-    if (choicestr != NULL)
-      job_data->num_options = cupsAddOption("OutputBin", choicestr,
-					    job_data->num_options,
-					    &(job_data->options));
-  }
-
-  // Presets, selected by color/bw and print quality
-  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG,
-	      "Adding option presets depending on requested print quality");
-  if (job_data->ppd->color_device &&
-      (job_options->print_color_mode &
-       (PAPPL_COLOR_MODE_AUTO | PAPPL_COLOR_MODE_COLOR)) != 0)
-    pcm = 1;
-  else
-    pcm = 0;
-  if (job_options->print_quality == IPP_QUALITY_DRAFT)
-    pq = 0;
-  else if (job_options->print_quality == IPP_QUALITY_HIGH)
-    pq = 2;
-  else
-    pq = 1;
-  num_presets = pc->num_presets[pcm][pq];
-  presets     = pc->presets[pcm][pq];
-  for (i = 0; i < num_presets; i ++)
-    job_data->num_options = cupsAddOption(presets[i].name, presets[i].value,
-					  job_data->num_options,
-					  &(job_data->options));
-
-  // Do we have a way to force grayscale printing?
-  if (pcm == 0)
-  {
-    // Find suitable option in the PPD file and set it if available
-    if (ps_have_force_gray(job_data->ppd, &optstr, &choicestr) &&
-	cupsGetOption(optstr, job_data->num_options,
-		      job_data->options) == NULL)
-      job_data->num_options = cupsAddOption(optstr, choicestr,
-					    job_data->num_options,
-					    &(job_data->options));
-    // Add "ColorModel=Gray" to make filters converting color
-    // input to grayscale
-    if (cupsGetOption("ColorModel", job_data->num_options,
-		      job_data->options) == NULL)
-      job_data->num_options = cupsAddOption("ColorModel", "Gray",
-					    job_data->num_options,
-					    &(job_data->options));
-  }
-
-  // print-scaling (filter option)
-  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: print-scaling");
-  if (job_options->print_scaling)
-  {
-    if (job_options->print_scaling & PAPPL_SCALING_AUTO)
-      job_data->num_options = cupsAddOption("print-scaling", "auto",
-					    job_data->num_options,
-					    &(job_data->options));
-    if (job_options->print_scaling & PAPPL_SCALING_AUTO_FIT)
-      job_data->num_options = cupsAddOption("print-scaling", "auto-fit",
-					    job_data->num_options,
-					    &(job_data->options));
-    if (job_options->print_scaling & PAPPL_SCALING_FILL)
-      job_data->num_options = cupsAddOption("print-scaling", "fill",
-					    job_data->num_options,
-					    &(job_data->options));
-    if (job_options->print_scaling & PAPPL_SCALING_FIT)
-      job_data->num_options = cupsAddOption("print-scaling", "fit",
-					    job_data->num_options,
-					    &(job_data->options));
-    if (job_options->print_scaling & PAPPL_SCALING_NONE)
-      job_data->num_options = cupsAddOption("print-scaling", "none",
-					    job_data->num_options,
-					    &(job_data->options));
-  }
-
-  // Resolution/printer-resolution
-  // Only add a "Resolution" option if there is none yet (from presets)
-  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: Resolution");
-  if (cupsGetOption("Resolution", job_data->num_options,
-		    job_data->options) == NULL)
-  {
-    if ((job_options->printer_resolution[0] &&
-	 ((attr = papplJobGetAttribute(job, "printer-resolution")) != NULL ||
-	  (attr = papplJobGetAttribute(job, "Resolution")) != NULL) &&
-	 (option = ppdFindOption(job_data->ppd, "Resolution")) != NULL &&
-	 (count = option->num_choices) > 0))
-    {
-      for (i = 0, choice = option->choices; i < count; i ++, choice ++)
-      {
-	if ((j = sscanf(choice->choice, "%dx%d", &xres, &yres)) == 1)
-	  yres = xres;
-	else if (j <= 0)
-	  continue;
-	if (job_options->printer_resolution[0] == xres &&
-	    (job_options->printer_resolution[1] == yres ||
-	     (job_options->printer_resolution[1] == 0 && xres == yres)))
-	  break;
-      }
-      if (i < count)
-	job_data->num_options = cupsAddOption("Resolution", choice->choice,
-					      job_data->num_options,
-					      &(job_data->options));
-    }
-    else if (job_options->printer_resolution[0])
-    {
-      if (job_options->printer_resolution[1] &&
-	  job_options->printer_resolution[0] !=
-	  job_options->printer_resolution[1])
-	snprintf(buf, sizeof(buf) - 1, "%dx%ddpi",
-		 job_options->printer_resolution[0],
-		 job_options->printer_resolution[1]);
-      else
-	snprintf(buf, sizeof(buf) - 1, "%ddpi",
-		 job_options->printer_resolution[0]);
-      job_data->num_options = cupsAddOption("Resolution", buf,
-					    job_data->num_options,
-					    &(job_data->options));
-    }
-    else if ((ppd_attr = ppdFindAttr(job_data->ppd, "DefaultResolution",
-				     NULL)) != NULL)
-      job_data->num_options = cupsAddOption("Resolution", ppd_attr->value,
-					    job_data->num_options,
-					    &(job_data->options));
-  }
-
-  // Duplex/sides
-  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: Duplex");
-  if (job_options->sides && pc->sides_option)
-  {
-    if (job_options->sides & PAPPL_SIDES_ONE_SIDED &&
-	pc->sides_1sided)
-      job_data->num_options = cupsAddOption(pc->sides_option,
-					    pc->sides_1sided,
-					    job_data->num_options,
-					    &(job_data->options));
-    else if (job_options->sides & PAPPL_SIDES_TWO_SIDED_LONG_EDGE &&
-	     pc->sides_2sided_long)
-      job_data->num_options = cupsAddOption(pc->sides_option,
-					    pc->sides_2sided_long,
-					    job_data->num_options,
-					    &(job_data->options));
-    else if (job_options->sides & PAPPL_SIDES_TWO_SIDED_SHORT_EDGE &&
-	     pc->sides_2sided_short)
-      job_data->num_options = cupsAddOption(pc->sides_option,
-					    pc->sides_2sided_short,
-					    job_data->num_options,
-					    &(job_data->options));
-  }
-
-  //
-  // Add vendor-specific PPD options
-  //
-
-  for (i = 0; i < driver_data.num_vendor; i ++)
-  {
-    papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: %s",
-		extension->vendor_ppd_options[i]);
-    if ((attr = papplJobGetAttribute(job, driver_data.vendor[i])) == NULL)
-    {
-      snprintf(buf, sizeof(buf), "%s-default", driver_data.vendor[i]);
-      attr = ippFindAttribute(driver_attrs, buf, IPP_TAG_ZERO);
-    }
-
-    choicestr = NULL;
-    if (attr)
-    {
-      ptr = strdup(ippGetString(attr, 0, NULL));
-      snprintf(buf, sizeof(buf), "%s-supported", driver_data.vendor[i]);
-      attr = ippFindAttribute(driver_attrs, buf, IPP_TAG_ZERO);
-      if (attr == NULL)
-      {
-	// Should never happen
-	papplLogJob(job, PAPPL_LOGLEVEL_ERROR,
-		    "  IPP Option not correctly registered (bug), "
-		    "skipping ...");
-	continue;
-      }
-      option = ppdFindOption(job_data->ppd, extension->vendor_ppd_options[i]);
-      if (option == NULL)
-      {
-	// Should never happen
-	papplLogJob(job, PAPPL_LOGLEVEL_ERROR,
-		    "  PPD Option not correctly registered (bug), "
-		    "skipping ...");
-	continue;
-      }
-      if (ippGetValueTag(attr) == IPP_TAG_BOOLEAN)
-      {
-	if (!strcasecmp("true", ptr))
-	  choicestr = "True";
-	else if (!strcasecmp("false", ptr))
-	  choicestr = "False";
-      }
-      else
-	for (j = 0; j < ippGetCount(attr); j ++)
-	  if (!strcasecmp(ippGetString(attr, j, NULL), ptr))
-	  {
-	    choicestr = option->choices[j].choice;
-	    break;
-	  }
-      if (choicestr != NULL)
-	job_data->num_options = cupsAddOption(extension->vendor_ppd_options[i],
-					      choicestr, job_data->num_options,
-					      &(job_data->options));
-      free(ptr);
-    }
-  }
-
-  // XXX "Collate" option
-
-  // Mark options in the PPD file
-  ppdMarkOptions(job_data->ppd, job_data->num_options, job_data->options);
-
-  // Log the option settings which will get used
-  snprintf(buf, sizeof(buf) - 1, "PPD options to be used:");
-  for (i = job_data->num_options, opt = job_data->options; i > 0; i --, opt ++)
-    snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf) - 1,
-	     " %s=%s", opt->name, opt->value);
-  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "%s", buf);  
-
-  return (job_data);
 }
 
 
@@ -2427,7 +2426,7 @@ ps_setup(pappl_system_t *system)      // I - System
     papplLog(system, PAPPL_LOGLEVEL_FATAL, "No PPD files found.");
 
   papplSystemSetPrinterDrivers(system, num_drivers, drivers,
-			       ps_autoadd, NULL, ps_callback, ppd_paths);
+			       ps_autoadd, NULL, ps_driver_setup, ppd_paths);
 
   //
   // Add filters for the different input data formats
