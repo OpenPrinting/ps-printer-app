@@ -131,7 +131,7 @@ static void   ps_job_log(void *data, filter_loglevel_t level,
 			 const char *message, ...);
 static void   ps_media_col(pwg_size_t *pwg_size, const char *def_source,
 			   const char *def_type, int left_offset,
-			   int top_ofsset, pappl_media_tracking_t tracking,
+			   int top_offset, pappl_media_tracking_t tracking,
 			   pappl_media_col_t *col);
 static void   ps_one_bit_dither_on_draft(pappl_job_t *job,
 					 pappl_pr_options_t *options);
