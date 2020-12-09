@@ -138,6 +138,9 @@ static void   ps_one_bit_dither_on_draft(pappl_job_t *job,
 int           ps_print_filter_function(int inputfd, int outputfd,
 				       int inputseekable, filter_data_t *data,
 				       void *parameters);
+static void   ps_printer_web_get_defaults(pappl_client_t *client,
+					  pappl_printer_t *printer);
+static void   ps_printer_extra_setup(pappl_printer_t *printer, void *data);
 static bool   ps_rendjob(pappl_job_t *job, pappl_pr_options_t *options,
 			 pappl_device_t *device);
 static bool   ps_rendpage(pappl_job_t *job, pappl_pr_options_t *options,
@@ -1877,6 +1880,109 @@ ps_print_filter_function(int inputfd,         // I - File descriptor input
 
 
 //
+// 'ps_printer_web_get_defaults()' - Web interface page for polling default
+//                                   settings from the printer.
+//
+
+static void
+ps_printer_web_get_defaults(
+    pappl_client_t  *client,		// I - Client
+    pappl_printer_t *printer)		// I - Printer
+{
+  const char	*status = NULL;		// Status text, if any
+  const char    *uri = NULL;            // Client URI
+  pappl_system_t        *system;	// System
+
+
+  system = papplPrinterGetSystem(printer);
+
+  if (!papplClientHTMLAuthorize(client))
+    return;
+
+  // Handle POSTs to poll default settings...
+  if (papplClientGetMethod(client) == HTTP_STATE_POST)
+  {
+    int			num_form = 0;	// Number of form variable
+    cups_option_t	*form = NULL;	// Form variables
+    const char		*action;	// Form action
+
+    if ((num_form = papplClientGetForm(client, &form)) == 0)
+    {
+      status = "Invalid form data.";
+    }
+    else if (!papplClientIsValidForm(client, num_form, form))
+    {
+      status = "Invalid form submission.";
+    }
+    else if ((action = cupsGetOption("action", num_form, form)) == NULL)
+    {
+      status = "Missing action.";
+    }
+    else if (!strcmp(action, "poll-defaults"))
+    {
+      status = "Polling default values from printer.";
+      // XXX Poll default values here
+    }
+    else if (!strcmp(action, "poll-media-ready"))
+    {
+      status = "Polling loaded media information from printer.";
+      // XXX Poll media info here
+    }
+    else
+      status = "Unknown action.";
+
+    cupsFreeOptions(num_form, form);
+  }
+
+  papplClientHTMLPrinterHeader(client, printer, "Defaults from Printer", 0, NULL, NULL);
+
+  if (status)
+    papplClientHTMLPrintf(client, "          <div class=\"banner\">%s</div>\n", status);
+
+  uri = papplClientGetURI(client);
+
+  papplClientHTMLStartForm(client, uri, false);
+  papplClientHTMLPrintf(client, "          <input type=\"hidden\" name=\"action\" value=\"poll-defaults\"><input type=\"submit\" value=\"Get printing defaults from the printer\"></form><br><br>\n");
+
+  papplClientHTMLStartForm(client, uri, false);
+  papplClientHTMLPrintf(client, "          <input type=\"hidden\" name=\"action\" value=\"poll-media-ready\"><input type=\"submit\" value=\"Get loaded media info from the printer\"></form><br>\n");
+
+  papplClientHTMLPrinterFooter(client);
+}
+
+
+//
+// 'ps_printer_extra_setup()' - Extra code for setting up a printer, for
+//                              example to get extra buttons/pages on the web
+//                              interface for this printer.
+//
+
+static void   ps_printer_extra_setup(pappl_printer_t *printer,
+				     void *data)
+{
+  char                  path[256];      // Path to resource
+  pappl_system_t        *system;	// System
+
+
+  system = papplPrinterGetSystem(printer);
+
+  papplPrinterGetPath(printer, "getdefaults", path, sizeof(path));
+  papplSystemAddResourceCallback(system, path, "text/html",
+			       (pappl_resource_cb_t)ps_printer_web_get_defaults,
+			       printer);
+  papplPrinterAddLink(printer, "Defaults from Printer", path,
+		      PAPPL_LOPTIONS_NAVIGATION | PAPPL_LOPTIONS_STATUS);
+
+  //papplPrinterGetPath(printer, "installable", path, sizeof(path));
+  //papplSystemAddResourceCallback(system, path, "text/html",
+  //			       (pappl_resource_cb_t)ps_printer_web_installable,
+  //			       printer);
+  //papplPrinterAddLink(printer, "Installable Options", path,
+  //		      PAPPL_LOPTIONS_NAVIGATION | PAPPL_LOPTIONS_STATUS);
+}
+
+
+//
 // 'ps_rendjob()' - End a job.
 //
 
@@ -2464,7 +2570,8 @@ ps_setup(pappl_system_t *system)      // I - System
     papplLog(system, PAPPL_LOGLEVEL_FATAL, "No PPD files found.");
 
   papplSystemSetPrinterDrivers(system, num_drivers, drivers,
-			       ps_autoadd, NULL, ps_driver_setup, ppd_paths);
+			       ps_autoadd, ps_printer_extra_setup,
+			       ps_driver_setup, ppd_paths);
 
   //
   // Add filters for the different input data formats
