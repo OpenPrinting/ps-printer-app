@@ -559,11 +559,12 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
   ippDelete(attrs);
 
   // InputSlot/media-source
-  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: InputSlot");
+  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: %s",
+	      pc->source_option ? pc->source_option : "InputSlot");
   if ((choicestr = ppdCacheGetInputSlot(pc, NULL,
 					job_options->media.source)) !=
       NULL)
-    job_data->num_options = cupsAddOption("InputSlot", choicestr,
+    job_data->num_options = cupsAddOption(pc->source_option, choicestr,
 					  job_data->num_options,
 					  &(job_data->options));
 
