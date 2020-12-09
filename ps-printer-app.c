@@ -43,7 +43,7 @@ typedef struct ps_ppd_path_s		// Driver-name/PPD-path pair
 
 typedef struct ps_driver_extension_s	// Driver data extension
 {
-  const char *ppd_path;	                // PPD path in collections
+  ppd_file_t *ppd;                      // PPD file loaded from collection
   const char *vendor_ppd_options[PAPPL_MAX_VENDOR]; // Names of the PPD options
                                         // represented as vendor options;
 } ps_driver_extension_t;
@@ -465,25 +465,8 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
 
   papplPrinterGetDriverData(printer, &driver_data);
   extension = (ps_driver_extension_t *)driver_data.extension;
-  ppd_path = extension->ppd_path;
-  if ((job_data->ppd =
-       ppdOpen2(ppdCollectionGetPPD(ppd_path, NULL,
-				    (filter_logfunc_t)papplLogJob, job))) ==
-      NULL)
-  {
-    ppd_status_t	err;		// Last error in file
-    int			line;		// Line number in file
-
-    err = ppdLastError(&line);
-    papplLogJob(job, PAPPL_LOGLEVEL_ERROR,
-		"PPD %s: %s on line %d", ppd_path,
-		ppdErrorString(err), line);
-    return (NULL);
-  }
-
-  ppdMarkDefaults(job_data->ppd);
-  if ((pc = ppdCacheCreateWithPPD(job_data->ppd)) != NULL)
-    job_data->ppd->cache = pc;
+  job_data->ppd = extension->ppd;
+  pc = job_data->ppd->cache;
 
   driver_attrs = papplPrinterGetDriverAttributes(printer);
 
@@ -841,6 +824,9 @@ static void   ps_driver_delete(
 
   extension = (ps_driver_extension_t *)driver_data->extension;
 
+  // PPD file
+  ppdClose(extension->ppd);
+
   // Media source
   for (i = 0; i < driver_data->num_source; i ++)
     free((char *)(driver_data->source[i]));
@@ -865,7 +851,6 @@ static void   ps_driver_delete(
   }
 
   // Extension
-  free((char *)(extension->ppd_path));
   free(extension);
 }
 
@@ -1020,7 +1005,7 @@ ps_driver_setup(
   driver_data->extension =
     (ps_driver_extension_t *)calloc(1, sizeof(ps_driver_extension_t));
   extension = (ps_driver_extension_t *)driver_data->extension;
-  extension->ppd_path = strdup(ppd_path->ppd_path);
+  extension->ppd = ppd;
   driver_data->delete_cb          = ps_driver_delete;
   driver_data->identify_cb        = ps_identify;
   driver_data->identify_default   = PAPPL_IDENTIFY_ACTIONS_SOUND;
@@ -1471,8 +1456,6 @@ ps_driver_setup(
     }
   }
 
-  ppdClose(ppd);
-
   return (true);
 }
 
@@ -1595,12 +1578,11 @@ ps_filter(
 
 
 //
-// 'ps_free_job_data()' - Clean up PPD and PPD options.
+// 'ps_free_job_data()' - Clean up job data with PPD options.
 //
 
 static void   ps_free_job_data(ps_job_data_t *job_data)
 {
-  ppdClose(job_data->ppd);
   cupsFreeOptions(job_data->num_options, job_data->options);
   free(job_data);
 }
