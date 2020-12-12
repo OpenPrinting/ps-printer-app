@@ -50,7 +50,7 @@ requests](https://github.com/OpenPrinting/ps-printer-app).
 
 Further properties are:
 
-- To do not need to re-invent the code for forking into sub-processes
+- To avoid the need to re-invent the code for forking into sub-processes
   so that we can pass data through a sequence of filters, we create a
   filter function to send the data off to the printer and form a chain
   of the actually converting filter function (one of pstops() and
