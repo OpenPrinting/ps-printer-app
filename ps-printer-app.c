@@ -46,6 +46,11 @@ typedef struct ps_driver_extension_s	// Driver data extension
   ppd_file_t *ppd;                      // PPD file loaded from collection
   const char *vendor_ppd_options[PAPPL_MAX_VENDOR]; // Names of the PPD options
                                         // represented as vendor options;
+  // Special properties taken from the PPD file
+  bool       defaults_pollable,         // Are option defaults pollable? 
+             installable_options,       // Is there an "Installable Options"
+                                        // group?
+             installable_pollable;      // "Installable Options" pollable?
 } ps_driver_extension_t;
 
 typedef struct ps_filter_data_s		// Filter data
@@ -138,8 +143,8 @@ static void   ps_one_bit_dither_on_draft(pappl_job_t *job,
 int           ps_print_filter_function(int inputfd, int outputfd,
 				       int inputseekable, filter_data_t *data,
 				       void *parameters);
-static void   ps_printer_web_get_defaults(pappl_client_t *client,
-					  pappl_printer_t *printer);
+static void   ps_printer_web_device_config(pappl_client_t *client,
+					   pappl_printer_t *printer);
 static void   ps_printer_extra_setup(pappl_printer_t *printer, void *data);
 static bool   ps_rendjob(pappl_job_t *job, pappl_pr_options_t *options,
 			 pappl_device_t *device);
@@ -456,7 +461,6 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
   ppd_attr_t            *ppd_attr;
   pwg_map_t             *pwg_map;
   char                  *ptr;
-  int                   jobcanceled = 0;// Is job canceled?
   pappl_printer_t       *printer = papplJobGetPrinter(job);
 
   //
@@ -850,7 +854,8 @@ static void   ps_driver_delete(
   for (i = 0; i < driver_data->num_vendor; i ++)
   {
     free((char *)(driver_data->vendor[i]));
-    free((char *)(extension->vendor_ppd_options[i]));
+    if (extension->vendor_ppd_options[i])
+      free((char *)(extension->vendor_ppd_options[i]));
   }
 
   // Extension
@@ -874,12 +879,18 @@ ps_driver_setup(
     void                 *data)	           // I - Callback data
 {
   int          i, j, k;                    // Looping variables
+  bool         update;                     // Are we updating the data
+                                           // structure and not freshly
+                                           // creating it?
   ps_driver_extension_t *extension;
   cups_array_t *ppd_paths = (cups_array_t *)data;
   ps_ppd_path_t *ppd_path,
                search_ppd_path;
   ppd_file_t   *ppd = NULL;		   // PPD file loaded from collection
   ppd_cache_t  *pc;
+  ipp_attribute_t *attr;
+  int          num_options;
+  cups_option_t *options;
   char         *keyword;
   ipp_res_t    units;			   // Resolution units
   const char   *def_source,
@@ -894,7 +905,9 @@ ps_driver_setup(
   pwg_size_t   *pwg_size;
   ppd_pwg_finishings_t *finishings;
   int          count;
-  char         ipp_opt[80],
+  bool         pollable;
+  char         buf[1024],
+               ipp_opt[80],
                ipp_supported[128],
                ipp_default[128],
                ipp_choice[80];
@@ -914,122 +927,149 @@ ps_driver_setup(
   };
 
 
-  if (!driver_name || !device_uri || !driver_data || !driver_attrs)
+  if (!driver_data || !driver_attrs)
   {
     papplLog(system, PAPPL_LOGLEVEL_ERROR,
 	     "Driver callback called without required information.");
     return (false);
   }
 
-  if (!ppd_paths || cupsArrayCount(ppd_paths) == 0)
+  if (driver_data->extension == NULL)
   {
-    papplLog(system, PAPPL_LOGLEVEL_ERROR,
-	     "Driver callback did not find PPD indices.");
-    return (false);
-  }
-
-  //
-  // Load assigned PPD file from the PPD collection, mark defaults, create
-  // cache
-  //
-
- retry:
-  if (strcasecmp(driver_name, "auto") == 0)
-  {
-    // Auto-select driver
-    papplLog(system, PAPPL_LOGLEVEL_INFO,
-	     "Automatic printer driver selection for device with URI \"%s\" "
-	     "and device ID \"%s\" ...", device_uri, device_id);
-    search_ppd_path.driver_name = ps_autoadd(NULL, device_uri, device_id, NULL);
-    if (search_ppd_path.driver_name)
-      papplLog(system, PAPPL_LOGLEVEL_INFO,
-	       "Automatically selected driver \"%s\".",
-	       search_ppd_path.driver_name);
-    else
+    if (!ppd_paths || cupsArrayCount(ppd_paths) == 0)
     {
       papplLog(system, PAPPL_LOGLEVEL_ERROR,
-	       "Automatic printer driver selection for printer "
-	       "\"%s\" with device ID \"%s\" failed.",
-	       device_uri, device_id);
+	       "Driver callback did not find PPD indices.");
       return (false);
     }
-  }
-  else
-    search_ppd_path.driver_name = driver_name;
 
-  ppd_path = (ps_ppd_path_t *)cupsArrayFind(ppd_paths, &search_ppd_path);
+    //
+    // Load assigned PPD file from the PPD collection, mark defaults, create
+    // cache
+    //
 
-  if (ppd_path == NULL)
-  {
+  retry:
     if (strcasecmp(driver_name, "auto") == 0)
     {
-      papplLog(system, PAPPL_LOGLEVEL_ERROR,
-	       "For the printer driver \"%s\" got auto-selected which does not "
-	       "exist in this Printer Application.",
-	       search_ppd_path.driver_name);
-      return (false);
+      // Auto-select driver
+      papplLog(system, PAPPL_LOGLEVEL_INFO,
+	       "Automatic printer driver selection for device with URI \"%s\" "
+	       "and device ID \"%s\" ...", device_uri, device_id);
+      search_ppd_path.driver_name = ps_autoadd(NULL, device_uri, device_id,
+					       NULL);
+      if (search_ppd_path.driver_name)
+	papplLog(system, PAPPL_LOGLEVEL_INFO,
+		 "Automatically selected driver \"%s\".",
+		 search_ppd_path.driver_name);
+      else
+      {
+	papplLog(system, PAPPL_LOGLEVEL_ERROR,
+		 "Automatic printer driver selection for printer "
+		 "\"%s\" with device ID \"%s\" failed.",
+		 device_uri, device_id);
+	return (false);
+      }
     }
     else
+      search_ppd_path.driver_name = driver_name;
+
+    ppd_path = (ps_ppd_path_t *)cupsArrayFind(ppd_paths, &search_ppd_path);
+
+    if (ppd_path == NULL)
     {
-      papplLog(system, PAPPL_LOGLEVEL_WARN,
-	       "Printer uses driver \"%s\" which does not exist in this "
-	       "Printer Application, switching to \"auto\".", driver_name);
-      driver_name = "auto";
-      goto retry;
+      if (strcasecmp(driver_name, "auto") == 0)
+      {
+	papplLog(system, PAPPL_LOGLEVEL_ERROR,
+		 "For the printer driver \"%s\" got auto-selected which does "
+		 "not exist in this Printer Application.",
+		 search_ppd_path.driver_name);
+	return (false);
+      }
+      else
+      {
+	papplLog(system, PAPPL_LOGLEVEL_WARN,
+		 "Printer uses driver \"%s\" which does not exist in this "
+		 "Printer Application, switching to \"auto\".", driver_name);
+	driver_name = "auto";
+	goto retry;
+      }
     }
-  }
 
-  if ((ppd = ppdOpen2(ppdCollectionGetPPD(ppd_path->ppd_path, NULL,
-					  (filter_logfunc_t)papplLog,
-					  system))) == NULL)
+    if ((ppd = ppdOpen2(ppdCollectionGetPPD(ppd_path->ppd_path, NULL,
+					    (filter_logfunc_t)papplLog,
+					    system))) == NULL)
+    {
+      ppd_status_t	err;		// Last error in file
+      int		line;		// Line number in file
+
+      err = ppdLastError(&line);
+      papplLog(system, PAPPL_LOGLEVEL_ERROR,
+	       "PPD %s: %s on line %d", ppd_path->ppd_path,
+	       ppdErrorString(err), line);
+      return (false);
+    }
+
+    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	     "Using PPD %s: %s", ppd_path->ppd_path, ppd->nickname);
+
+    ppdMarkDefaults(ppd);
+
+    // Get settings of the "Installable Options" from the previous session
+    if ((attr = ippFindAttribute(*driver_attrs, "installable-options-default",
+				 IPP_TAG_ZERO)) != NULL &&
+	ippAttributeString(attr, buf, sizeof(buf)) > 0)
+    {
+      options = NULL;
+      num_options = cupsParseOptions(buf, 0, &options);
+      ppdMarkOptions(ppd, num_options, options);
+    }
+
+    if ((pc = ppdCacheCreateWithPPD(ppd)) != NULL)
+      ppd->cache = pc;
+
+    //
+    // Populate driver data record
+    //
+
+    // Callback functions end general properties
+    driver_data->extension =
+      (ps_driver_extension_t *)calloc(1, sizeof(ps_driver_extension_t));
+    extension = (ps_driver_extension_t *)driver_data->extension;
+    extension->ppd = ppd;
+    extension->defaults_pollable = false;
+    extension->installable_options = false;
+    extension->installable_pollable = false;
+    driver_data->delete_cb          = ps_driver_delete;
+    driver_data->identify_cb        = ps_identify;
+    driver_data->identify_default   = PAPPL_IDENTIFY_ACTIONS_SOUND;
+    driver_data->identify_supported = PAPPL_IDENTIFY_ACTIONS_DISPLAY |
+                                      PAPPL_IDENTIFY_ACTIONS_SOUND;
+    driver_data->printfile_cb       = NULL;
+    driver_data->rendjob_cb         = ps_rendjob;
+    driver_data->rendpage_cb        = ps_rendpage;
+    driver_data->rstartjob_cb       = ps_rstartjob;
+    driver_data->rstartpage_cb      = ps_rstartpage;
+    driver_data->rwriteline_cb      = ps_rwriteline;
+    driver_data->status_cb          = ps_status;
+    driver_data->testpage_cb        = ps_testpage;
+    driver_data->format             = "application/vnd.printer-specific";
+    driver_data->orient_default     = IPP_ORIENT_NONE;
+    driver_data->quality_default    = IPP_QUALITY_NORMAL;
+
+    // Make and model
+    strncpy(driver_data->make_and_model,
+	    ppd->nickname,
+	    sizeof(driver_data->make_and_model));
+
+    update = false;
+  }
+  else
   {
-    ppd_status_t	err;		// Last error in file
-    int			line;		// Line number in file
+    extension = (ps_driver_extension_t *)driver_data->extension;
+    ppd = extension->ppd;
 
-    err = ppdLastError(&line);
-    papplLog(system, PAPPL_LOGLEVEL_ERROR,
-	     "PPD %s: %s on line %d", ppd_path->ppd_path,
-	     ppdErrorString(err), line);
-    return (false);
+    update = true;
   }
-
-  papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-	   "Using PPD %s: %s", ppd_path->ppd_path, ppd->nickname);
-
-  ppdMarkDefaults(ppd);
-  if ((pc = ppdCacheCreateWithPPD(ppd)) != NULL)
-    ppd->cache = pc;
-
-  //
-  // Populate driver data record
-  //
-
-  // Callback functions end general properties
-  driver_data->extension =
-    (ps_driver_extension_t *)calloc(1, sizeof(ps_driver_extension_t));
-  extension = (ps_driver_extension_t *)driver_data->extension;
-  extension->ppd = ppd;
-  driver_data->delete_cb          = ps_driver_delete;
-  driver_data->identify_cb        = ps_identify;
-  driver_data->identify_default   = PAPPL_IDENTIFY_ACTIONS_SOUND;
-  driver_data->identify_supported = PAPPL_IDENTIFY_ACTIONS_DISPLAY |
-    PAPPL_IDENTIFY_ACTIONS_SOUND;
-  driver_data->printfile_cb       = NULL;
-  driver_data->rendjob_cb         = ps_rendjob;
-  driver_data->rendpage_cb        = ps_rendpage;
-  driver_data->rstartjob_cb       = ps_rstartjob;
-  driver_data->rstartpage_cb      = ps_rstartpage;
-  driver_data->rwriteline_cb      = ps_rwriteline;
-  driver_data->status_cb          = ps_status;
-  driver_data->testpage_cb        = ps_testpage;
-  driver_data->format             = "application/vnd.printer-specific";
-  driver_data->orient_default     = IPP_ORIENT_NONE;
-  driver_data->quality_default    = IPP_QUALITY_NORMAL;
-
-  // Make and model
-  strncpy(driver_data->make_and_model,
-	  ppd->nickname,
-	  sizeof(driver_data->make_and_model));
 
   // Print speed in pages per minute (PPDs do not show different values for
   // Grayscale and Color)
@@ -1353,28 +1393,44 @@ ps_driver_setup(
        i > 0;
        i --, group ++)
   {
-    // Skip the group for installable options as we do not (yet) support
-    // option conflicts/constraints
-    if (strncasecmp(group->name, "Installable", 11) == 0)
-      continue;
-
     for (j = group->num_options, option = group->options;
          j > 0;
          j --, option ++)
     {
-      // Stop and warn if we have no slot for vendor attributes any more
-      if (driver_data->num_vendor >= PAPPL_MAX_VENDOR)
-      {
-	papplLog(system, PAPPL_LOGLEVEL_WARN,
-		 "Too many options in PPD file, \"%s\" will not be controllable!",
-		 option->keyword);
-	continue;
-      }
-
       // Does the option have less than 2 choices? Then it does not make
       // sense to let it show in the web interface
       if (option->num_choices < 2)
 	continue;
+
+      // Can printer's default setting of this option be polled from the
+      // printer?
+      snprintf(buf, sizeof(buf), "?%s", option->keyword);
+      if ((ppd_attr = ppdFindAttr(ppd, buf, NULL)) != NULL &&
+	  ppd_attr->value)
+      {
+	pollable = true;
+	papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+		 "Default of option \"%s\" (\"%s\") can get queried from "
+		 "printer.", option->keyword, option->text);
+      }
+
+      // Skip the group for installable options as we do not (yet) support
+      // option conflicts/constraints
+      if (strncasecmp(group->name, "Installable", 11) == 0)
+      {
+	papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+		 "Installable accessory option: \"%s\" (\"%s\")",
+		 option->keyword, option->text);
+	extension->installable_options = true;
+	if (pollable)
+	  extension->installable_pollable = true;
+	continue;
+      }
+
+      // Do we have a pollable option? Mark that we have one so that
+      // we can show an appropriate poll button in the web interface
+      if (pollable)
+	extension->defaults_pollable = true;
 
       // Is this option already handled by PAPPL/IPP
       for (k = 0; pappl_handled_options[k]; k ++)
@@ -1386,6 +1442,17 @@ ps_driver_setup(
 	  (pc->sides_option &&
 	   !strcasecmp(option->keyword, pc->sides_option)))
 	continue;
+
+      // Stop and warn if we have no slot for vendor attributes any more
+      // Note that we reserve one slot for saving the "Installable Options"
+      // in the state file
+      if (driver_data->num_vendor >= PAPPL_MAX_VENDOR - 1)
+      {
+	papplLog(system, PAPPL_LOGLEVEL_WARN,
+		 "Too many options in PPD file, \"%s\" will not be controllable!",
+		 option->keyword);
+	continue;
+      }
 
       // IPP-style names
       ppdPwgUnppdizeName(option->text, ipp_opt, sizeof(ipp_opt), NULL);
@@ -1459,6 +1526,21 @@ ps_driver_setup(
     }
   }
 
+  // Add a vendor option as placeholder for saving the settings for the
+  // "Installable Options" in the state file. With no "...-supported" IPP
+  // attribute and IPP_TAG_TEXT format it will not appear on the "Printing
+  // Defaults" web interface page.
+  if (extension->installable_options)
+  {
+    driver_data->vendor[driver_data->num_vendor] =
+      strdup("installable-options");
+    extension->vendor_ppd_options[driver_data->num_vendor] = NULL;
+    driver_data->num_vendor ++;
+    if (!update)
+      ippAddString(*driver_attrs, IPP_TAG_PRINTER, IPP_TAG_TEXT,
+		   "installable-options-default", NULL, "");
+  }
+
   return (true);
 }
 
@@ -1487,7 +1569,6 @@ ps_filter(
   cups_array_t          *chain;         // Filter function chain
   filter_filter_in_chain_t *filter,     // Filter function call for filtering
                            *print;      // Filter function call for printing
-  int                   jobcanceled = 0;// Is job canceled?
   pappl_printer_t       *printer = papplJobGetPrinter(job);
 
   //
@@ -1880,21 +1961,41 @@ ps_print_filter_function(int inputfd,         // I - File descriptor input
 
 
 //
-// 'ps_printer_web_get_defaults()' - Web interface page for polling default
-//                                   settings from the printer.
+// 'ps_printer_web_device_config()' - Web interface page for entering/polling
+//                                    the configuration of printer add-ons
+//                                    ("Installable Options" in PPD and polling
+//                                    default option settings
 //
 
 static void
-ps_printer_web_get_defaults(
+ps_printer_web_device_config(
     pappl_client_t  *client,		// I - Client
     pappl_printer_t *printer)		// I - Printer
 {
-  const char	*status = NULL;		// Status text, if any
-  const char    *uri = NULL;            // Client URI
-  pappl_system_t        *system;	// System
+  int          i, j, k;                 // Looping variables
+  const char   *status = NULL;		// Status text, if any
+  const char   *uri = NULL;             // Client URI
+  pappl_system_t *system;	        // System
+  pappl_pr_driver_data_t driver_data;
+  ipp_t        *driver_attrs;
+  ps_driver_extension_t *extension;
+  ppd_file_t   *ppd = NULL;		// PPD file loaded from collection
+  ppd_cache_t  *pc;
+  char         *keyword;
+  ppd_group_t  *group;
+  ppd_option_t *option;
+  ppd_choice_t *choice;
+  ppd_attr_t   *ppd_attr;
+  int          default_choice;
 
 
   system = papplPrinterGetSystem(printer);
+
+  papplPrinterGetDriverData(printer, &driver_data);
+  driver_attrs = papplPrinterGetDriverAttributes(printer);
+  extension = (ps_driver_extension_t *)driver_data.extension;
+  ppd = extension->ppd;
+  pc = ppd->cache;
 
   if (!papplClientHTMLAuthorize(client))
     return;
@@ -1904,7 +2005,13 @@ ps_printer_web_get_defaults(
   {
     int			num_form = 0;	// Number of form variable
     cups_option_t	*form = NULL;	// Form variables
+    int                 num_installables = 0; // Number of installable options 
+    cups_option_t	*installables = NULL; // Set installable options
+    cups_option_t       *opt;           // Option in the form
     const char		*action;	// Form action
+    char                buf[1024];
+    const char          *value;
+    char                *ptr1, *ptr2;
 
     if ((num_form = papplClientGetForm(client, &form)) == 0)
     {
@@ -1918,15 +2025,94 @@ ps_printer_web_get_defaults(
     {
       status = "Missing action.";
     }
+    else if (!strcmp(action, "set-installable"))
+    {
+      status = "Setting installed accessory configuration.";
+      buf[0] = '\0';
+      for (i = num_form, opt = form; i > 0;
+	   i --, opt ++)
+	if (opt->name[0] == '\t')
+	{
+	  if (opt->name[1] == '\t')
+	  {
+	    ptr1 = strdup(opt->name + 2);
+	    ptr2 = strchr(ptr1, '\t');
+	    *ptr2 = '\0';
+	    ptr2 ++;
+	    snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf) - 1,
+		     " %s=%s", ptr1, ptr2);
+	    num_installables = cupsAddOption(ptr1, ptr2,
+					     num_installables, &installables);
+	    free(ptr1);
+	  }
+	  else
+	  {
+	    snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf) - 1,
+		     " %s=%s", opt->name + 1, opt->value);
+	    num_installables = cupsAddOption(opt->name + 1, opt->value,
+					     num_installables, &installables);
+	  }
+	}
+      papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	       "\"Installable Options\" from web form:%s", buf);
+
+      buf[0] = '\0';
+      for (i = ppd->num_groups, group = ppd->groups;
+	   i > 0;
+	   i --, group ++)
+      {
+
+	// We are treating only the "Installable Options" group of options
+	// in the PPD file here
+
+	if (strncasecmp(group->name, "Installable", 11) != 0)
+	  continue;
+
+	for (j = group->num_options, option = group->options;
+	     j > 0;
+	     j --, option ++)
+        {
+	  // Does the option have less than 2 choices? Then it does not make
+	  // sense to let it show in the web interface
+	  if (option->num_choices < 2)
+	    continue;
+
+	  if ((value = cupsGetOption(option->keyword,
+				     num_installables, installables)) == NULL)
+	  {
+	    // Unchecked check box option
+	    if (!strcasecmp(option->choices[0].text, "false"))
+	      value = option->choices[0].choice;
+	    else if (!strcasecmp(option->choices[1].text, "false"))
+	      value = option->choices[1].choice;
+	  }
+	  ppdMarkOption(ppd, option->keyword, value);
+	  snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf) - 1,
+		   "%s=%s ", option->keyword, value);
+	}
+      }
+      cupsFreeOptions(num_installables, installables);
+
+      // Put the settings into an IPP attribute to save in the state file
+      buf[strlen(buf) - 1] = '\0';
+      papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	       "\"Installable Options\" marked in PPD: %s", buf);
+      ippDeleteAttribute(driver_attrs,
+			 ippFindAttribute(driver_attrs,
+					  "installable-options-default",
+					  IPP_TAG_ZERO));
+      ippAddString(driver_attrs, IPP_TAG_PRINTER, IPP_TAG_TEXT,
+		   "installable-options-default", NULL, buf);
+    }
+    else if (!strcmp(action, "poll-installable"))
+    {
+      status = "Polling installed accessory information from printer.";
+      // XXX Poll installed options info here
+    }
     else if (!strcmp(action, "poll-defaults"))
     {
       status = "Polling default values from printer.";
       // XXX Poll default values here
-    }
-    else if (!strcmp(action, "poll-media-ready"))
-    {
-      status = "Polling loaded media information from printer.";
-      // XXX Poll media info here
     }
     else
       status = "Unknown action.";
@@ -1934,18 +2120,110 @@ ps_printer_web_get_defaults(
     cupsFreeOptions(num_form, form);
   }
 
-  papplClientHTMLPrinterHeader(client, printer, "Defaults from Printer", 0, NULL, NULL);
+  papplClientHTMLPrinterHeader(client, printer, "Printer Device Settings", 0, NULL, NULL);
 
   if (status)
     papplClientHTMLPrintf(client, "          <div class=\"banner\">%s</div>\n", status);
 
   uri = papplClientGetURI(client);
 
-  papplClientHTMLStartForm(client, uri, false);
-  papplClientHTMLPrintf(client, "          <input type=\"hidden\" name=\"action\" value=\"poll-defaults\"><input type=\"submit\" value=\"Get printing defaults from the printer\"></form><br><br>\n");
+  if (extension->installable_options)
+  {
+    papplClientHTMLStartForm(client, uri, false);
 
-  papplClientHTMLStartForm(client, uri, false);
-  papplClientHTMLPrintf(client, "          <input type=\"hidden\" name=\"action\" value=\"poll-media-ready\"><input type=\"submit\" value=\"Get loaded media info from the printer\"></form><br>\n");
+    papplClientHTMLPuts(client,
+			"          <table class=\"form\">\n"
+			"            <tbody>\n");
+
+    for (i = ppd->num_groups, group = ppd->groups;
+	 i > 0;
+	 i --, group ++)
+    {
+
+      // We are treating only the "Installable Options" group of options
+      // in the PPD file here
+
+      if (strncasecmp(group->name, "Installable", 11) != 0)
+	continue;
+
+      for (j = group->num_options, option = group->options;
+	   j > 0;
+	   j --, option ++)
+      {
+	// Does the option have less than 2 choices? Then it does not make
+	// sense to let it show in the web interface
+	if (option->num_choices < 2)
+	  continue;
+
+	papplClientHTMLPrintf(client, "              <tr><th>%s:</th><td>", option->text);
+
+	if (option->num_choices == 2 &&
+	    ((!strcasecmp(option->choices[0].text, "true") &&
+	      !strcasecmp(option->choices[1].text, "false")) ||
+	     (!strcasecmp(option->choices[0].text, "false") &&
+	      !strcasecmp(option->choices[1].text, "true"))))
+	{
+	  // Create a check box widget, as human-readable choices "true"
+	  // and "false" are not very user-friendly
+	  default_choice = 0;
+	  for (k = 0; k < 2; k ++)
+	    if (!strcasecmp(option->choices[k].text, "true"))
+	    {
+	      if (option->choices[k].marked)
+		default_choice = 1;
+	      // Stop here to make k be the index of the "True" value of this
+	      // option so that we can extract its machine-readable value
+	      break;
+	    }
+	  // We precede the option name with a two tabs to mark it as an
+	  // option represented by a check box, we also add the machine-
+	  // readable choice name for "True" (checked). This way we can treat
+	  // the result correctly, taking into account that nothing for this
+	  // option gets submitted when the box is unchecked.
+	  papplClientHTMLPrintf(client, "<input type=\"checkbox\" name=\"\t\t%s\t%s\"%s>", option->keyword, option->choices[k].choice, default_choice == 1 ? " checked" : "");
+	}
+	else
+	{
+	  // Create a drop-down widget
+	  // We precede the option name with a single tab to tell that this
+	  // option comes from a drop-down. The drop-down choice always gets
+	  // submitted, so the option name in the name field is enough for
+	  // parsing the submitted result.
+	  // The tab in the beginning also assures that the PPD option names
+	  // never conflict with fixed option names of this function, like
+	  // "action" or "session".
+	  papplClientHTMLPrintf(client, "<select name=\"\t%s\">", option->keyword);
+	  default_choice = 0;
+	  for (k = 0; k < option->num_choices; k ++)
+	    papplClientHTMLPrintf(client, "<option value=\"%s\"%s>%s</option>", option->choices[k].choice, option->choices[k].marked ? " selected" : "", option->choices[k].text);
+	  papplClientHTMLPuts(client, "</select>");
+	}
+
+	papplClientHTMLPuts(client, "</td></tr>\n");
+      }
+    }
+    papplClientHTMLPuts(client,
+			"              <tr><th></th><td><input type=\"hidden\" name=\"action\" value=\"set-installable\"><input type=\"submit\" value=\"Set\"></td></tr>\n"
+			"            </tbody>\n"
+			"          </table>"
+			"        </form>\n");
+
+    if (extension->installable_pollable)
+    {
+      papplClientHTMLStartForm(client, uri, false);
+      papplClientHTMLPrintf(client, "          <input type=\"hidden\" name=\"action\" value=\"poll-installable\"><input type=\"submit\" value=\"Poll from printer\"></form>&nbsp;&nbsp;\n");
+    }
+  }
+
+  if (extension->installable_options &&
+      extension->defaults_pollable)
+    papplClientHTMLPrintf(client, "          <hr><br>\n");
+
+  if (extension->defaults_pollable)
+  {
+    papplClientHTMLStartForm(client, uri, false);
+    papplClientHTMLPrintf(client, "          <input type=\"hidden\" name=\"action\" value=\"poll-defaults\"><input type=\"submit\" value=\"Get printing defaults from the printer\"></form><br><br>\n");
+  }
 
   papplClientHTMLPrinterFooter(client);
 }
@@ -1960,25 +2238,28 @@ ps_printer_web_get_defaults(
 static void   ps_printer_extra_setup(pappl_printer_t *printer,
 				     void *data)
 {
-  char                  path[256];      // Path to resource
-  pappl_system_t        *system;	// System
+  char                   path[256];     // Path to resource
+  pappl_system_t         *system;	// System
+  pappl_pr_driver_data_t driver_data;
+  ps_driver_extension_t  *extension;
 
 
   system = papplPrinterGetSystem(printer);
 
-  papplPrinterGetPath(printer, "getdefaults", path, sizeof(path));
-  papplSystemAddResourceCallback(system, path, "text/html",
-			       (pappl_resource_cb_t)ps_printer_web_get_defaults,
-			       printer);
-  papplPrinterAddLink(printer, "Defaults from Printer", path,
-		      PAPPL_LOPTIONS_NAVIGATION | PAPPL_LOPTIONS_STATUS);
+  // XXX Re-run ps_driver_setup() in update mode as now we have all data loaded
 
-  //papplPrinterGetPath(printer, "installable", path, sizeof(path));
-  //papplSystemAddResourceCallback(system, path, "text/html",
-  //			       (pappl_resource_cb_t)ps_printer_web_installable,
-  //			       printer);
-  //papplPrinterAddLink(printer, "Installable Options", path,
-  //		      PAPPL_LOPTIONS_NAVIGATION | PAPPL_LOPTIONS_STATUS);
+  papplPrinterGetDriverData(printer, &driver_data);
+  extension = (ps_driver_extension_t *)driver_data.extension;
+  if (extension->defaults_pollable ||
+      extension->installable_options)
+  {
+    papplPrinterGetPath(printer, "device", path, sizeof(path));
+    papplSystemAddResourceCallback(system, path, "text/html",
+			     (pappl_resource_cb_t)ps_printer_web_device_config,
+			     printer);
+    papplPrinterAddLink(printer, "Device Settings", path,
+			PAPPL_LOPTIONS_NAVIGATION | PAPPL_LOPTIONS_STATUS);
+  }
 }
 
 
@@ -2614,16 +2895,13 @@ ps_status(
   // Use commandtops CUPS filter code to check status here (ink levels, ...)
   // XXX
 
-  // Do PostScript jobs for pollingonly once a minute or once every five
+  // Do PostScript jobs for polling only once a minute or once every five
   // minutes, therefore save time of last call in a static variable. and
   // only poll again if last poll is older than given time.
 
-  // First check installable options as long as they can be polled, update
-  // driver_data
+  // Needs ink level support in PAPPL
+  // (https://github.com/michaelrsweet/pappl/issues/83)
 
-  // Then Check media-ready: Set tray and then poll PageSize and MediaType,
-  // update driver_data
-  
   return (true);
 }
 
