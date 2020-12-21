@@ -50,7 +50,9 @@ typedef struct ps_driver_extension_s	// Driver data extension
   bool       defaults_pollable,         // Are option defaults pollable? 
              installable_options,       // Is there an "Installable Options"
                                         // group?
-             installable_pollable;      // "Installable Options" pollable?
+             installable_pollable,      // "Installable Options" pollable?
+             updated;                   // Is the driver data updated for
+                                        // "Installable Options" changes?
 } ps_driver_extension_t;
 
 typedef struct ps_filter_data_s		// Filter data
@@ -770,21 +772,21 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
 		    "skipping ...");
 	continue;
       }
-      if (ippGetValueTag(attr) == IPP_TAG_BOOLEAN)
+      for (j = 0;
+	   j < (ippGetValueTag(attr) == IPP_TAG_BOOLEAN ?
+		2 : ippGetCount(attr));
+	   j ++)
       {
-	if (!strcasecmp("true", ptr))
-	  choicestr = "True";
-	else if (!strcasecmp("false", ptr))
-	  choicestr = "False";
+	ppdPwgUnppdizeName(option->choices[j].text, buf, sizeof(buf), NULL);
+	if (!strcasecmp(buf, ptr))
+	{
+	  choicestr = option->choices[j].choice;
+	  break;
+	}
       }
-      else
-	for (j = 0; j < ippGetCount(attr); j ++)
-	  if (!strcasecmp(ippGetString(attr, j, NULL), ptr))
-	  {
-	    choicestr = option->choices[j].choice;
-	    break;
-	  }
-      if (choicestr != NULL)
+      if (choicestr != NULL &&
+	  !ppdInstallableConflict(job_data->ppd,
+				  extension->vendor_ppd_options[i], choicestr))
 	job_data->num_options = cupsAddOption(extension->vendor_ppd_options[i],
 					      choicestr, job_data->num_options,
 					      &(job_data->options));
@@ -878,7 +880,7 @@ ps_driver_setup(
     ipp_t                **driver_attrs,   // O - Driver attributes
     void                 *data)	           // I - Callback data
 {
-  int          i, j, k;                    // Looping variables
+  int          i, j, k, l;                 // Looping variables
   bool         update;                     // Are we updating the data
                                            // structure and not freshly
                                            // creating it?
@@ -890,16 +892,19 @@ ps_driver_setup(
   ppd_cache_t  *pc;
   ipp_attribute_t *attr;
   int          num_options;
-  cups_option_t *options;
+  cups_option_t *options,
+               *opt;
   char         *keyword;
   ipp_res_t    units;			   // Resolution units
   const char   *def_source,
-               *def_type,
-               *def_media;
-  int          def_left, def_right, def_top, def_bottom;
+               *def_type;
+  char         *def_bin;
+  pwg_size_t   *def_media;
+  int          def_res_x, def_res_y,
+               def_left, def_right, def_top, def_bottom;
   ppd_group_t  *group;
   ppd_option_t *option;
-  ppd_choice_t *choice;
+  ppd_choice_t *choice, *def_choice;
   ppd_attr_t   *ppd_attr;
   pwg_map_t    *pwg_map;
   pwg_size_t   *pwg_size;
@@ -912,7 +917,8 @@ ps_driver_setup(
                ipp_default[128],
                ipp_choice[80];
   char         **choice_list;
-  int          default_choice;
+  int          default_choice,
+               first_choice;
   const char * const pappl_handled_options[] =
   {
    "PageSize",
@@ -1035,10 +1041,11 @@ ps_driver_setup(
     driver_data->extension =
       (ps_driver_extension_t *)calloc(1, sizeof(ps_driver_extension_t));
     extension = (ps_driver_extension_t *)driver_data->extension;
-    extension->ppd = ppd;
-    extension->defaults_pollable = false;
-    extension->installable_options = false;
+    extension->ppd                  = ppd;
+    extension->defaults_pollable    = false;
+    extension->installable_options  = false;
     extension->installable_pollable = false;
+    extension->updated              = false;
     driver_data->delete_cb          = ps_driver_delete;
     driver_data->identify_cb        = ps_identify;
     driver_data->identify_default   = PAPPL_IDENTIFY_ACTIONS_SOUND;
@@ -1067,6 +1074,7 @@ ps_driver_setup(
   {
     extension = (ps_driver_extension_t *)driver_data->extension;
     ppd = extension->ppd;
+    extension->updated = true;
 
     update = true;
   }
@@ -1101,7 +1109,7 @@ ps_driver_setup(
     driver_data->color_supported =
       PAPPL_COLOR_MODE_AUTO | PAPPL_COLOR_MODE_COLOR |
       PAPPL_COLOR_MODE_MONOCHROME;
-    driver_data->color_default = PAPPL_COLOR_MODE_AUTO;
+    if (!update) driver_data->color_default = PAPPL_COLOR_MODE_AUTO;
   }
   else
   {
@@ -1128,32 +1136,48 @@ ps_driver_setup(
   // Duplex
   driver_data->sides_supported = PAPPL_SIDES_ONE_SIDED;
   driver_data->duplex = PAPPL_DUPLEX_NONE;
-  driver_data->sides_default = PAPPL_SIDES_ONE_SIDED;
-  if (pc->sides_2sided_long)
+  if (!update) driver_data->sides_default = PAPPL_SIDES_ONE_SIDED;
+  if (pc->sides_2sided_long &&
+      !ppdInstallableConflict(ppd, pc->sides_option,
+			      pc->sides_2sided_long))
   {
     driver_data->sides_supported |= PAPPL_SIDES_TWO_SIDED_LONG_EDGE;
     driver_data->duplex = PAPPL_DUPLEX_NORMAL;
-    if ((choice = ppdFindMarkedChoice(ppd, pc->sides_option)) != NULL &&
+    if (!update &&
+	(choice = ppdFindMarkedChoice(ppd, pc->sides_option)) != NULL &&
 	strcmp(choice->choice, pc->sides_2sided_long) == 0)
       driver_data->sides_default = PAPPL_SIDES_TWO_SIDED_LONG_EDGE;
   }
-  if (pc->sides_2sided_short)
+  if (pc->sides_2sided_short &&
+      !ppdInstallableConflict(ppd, pc->sides_option,
+			      pc->sides_2sided_short))
   {
     driver_data->sides_supported |= PAPPL_SIDES_TWO_SIDED_SHORT_EDGE;
     driver_data->duplex = PAPPL_DUPLEX_NORMAL;
-    if ((choice = ppdFindMarkedChoice(ppd, pc->sides_option)) != NULL &&
+    if (!update &&
+	(choice = ppdFindMarkedChoice(ppd, pc->sides_option)) != NULL &&
 	strcmp(choice->choice, pc->sides_2sided_short) == 0)
       driver_data->sides_default = PAPPL_SIDES_TWO_SIDED_SHORT_EDGE;
+  }
+  if (driver_data->sides_default & driver_data->sides_supported == 0)
+  {
+    driver_data->sides_default = PAPPL_SIDES_ONE_SIDED;
+    if (pc->sides_option)
+      ppdMarkOption(ppd, pc->sides_option, pc->sides_1sided);
   }
 
   // Finishings
   driver_data->finishings = PAPPL_FINISHINGS_NONE;
-  for (i = 1,
-	 finishings = (ppd_pwg_finishings_t *)cupsArrayFirst(pc->finishings);
+  for (finishings = (ppd_pwg_finishings_t *)cupsArrayFirst(pc->finishings);
        finishings;
-       i ++,
-	 finishings = (ppd_pwg_finishings_t *)cupsArrayNext(pc->finishings))
+       finishings = (ppd_pwg_finishings_t *)cupsArrayNext(pc->finishings))
   {
+    for (i = finishings->num_options, opt = finishings->options; i > 0;
+	 i --, opt ++)
+      if (ppdInstallableConflict(ppd, opt->name, opt->value))
+	break;
+    if (i > 0)
+      continue;
     if (finishings->value == IPP_FINISHINGS_STAPLE)
       driver_data->finishings |= PAPPL_FINISHINGS_STAPLE;
     else  if (finishings->value == IPP_FINISHINGS_PUNCH)
@@ -1163,78 +1187,97 @@ ps_driver_setup(
   }
 
   // Resolution
+  driver_data->num_resolution = 0;
   if ((option = ppdFindOption(ppd, "Resolution")) != NULL &&
       (count = option->num_choices) > 0) {
     // Valid "Resolution" option, make a sorted list of resolutions.
-    if (count > PAPPL_MAX_RESOLUTION)
-      count = PAPPL_MAX_RESOLUTION;
-    driver_data->num_resolution = count;
-
-    for (i = 0, choice = option->choices; i < count; i ++, choice ++)
+    if (update)
     {
-      if ((j = sscanf(choice->choice, "%dx%d",
-		      &(driver_data->x_resolution[i]),
-		      &(driver_data->y_resolution[i]))) == 1)
-	driver_data->y_resolution[i] = driver_data->x_resolution[i];
-      else if (j <= 0)
-      {
-	papplLog(system, PAPPL_LOGLEVEL_ERROR,
-		 "Invalid resolution: %s", choice->choice);
-	i --;
-	count --;
-	continue;
-      }
-      if (choice->marked) // Default resolution
-      {
-	driver_data->x_default = driver_data->x_resolution[i];
-	driver_data->y_default = driver_data->y_resolution[i];
-      }
-      for (j = i - 1; j >= 0; j --)
-      {
-	int       x1, y1,               // First X and Y resolution
-	          x2, y2,               // Second X and Y resolution
-	          temp;                 // Swap variable
-	x1 = driver_data->x_resolution[j];
-	y1 = driver_data->y_resolution[j];
-	x2 = driver_data->x_resolution[j + 1];
-	y2 = driver_data->y_resolution[j + 1];
-	if (x2 < x1 || (x2 == x1 && y2 < y1))
-	{
-	  temp                             = driver_data->x_resolution[j];
-	  driver_data->x_resolution[j]     = driver_data->x_resolution[j + 1];
-	  driver_data->x_resolution[j + 1] = temp;
-	  temp                             = driver_data->y_resolution[j];
-	  driver_data->y_resolution[j]     = driver_data->y_resolution[j + 1];
-	  driver_data->y_resolution[j + 1] = temp;
-	}
-      }
+      def_res_x = driver_data->x_default;
+      def_res_y = driver_data->y_default;
     }
-  }
-  else
-  {
-    if ((ppd_attr = ppdFindAttr(ppd, "DefaultResolution", NULL)) != NULL)
-    {
-      // Use the PPD-defined default resolution...
-      if ((j = sscanf(ppd_attr->value, "%dx%d",
-		      &(driver_data->x_resolution[0]),
-		      &(driver_data->y_resolution[0]))) == 1)
-	driver_data->y_resolution[0] = driver_data->x_resolution[0];
-      else if (j <= 0)
+    driver_data->x_default = 0;
+    driver_data->y_default = 0;
+    for (i = 0, j = 0, choice = option->choices;
+	 i < count && j < PAPPL_MAX_SOURCE;
+	 i ++, choice ++)
+      if (!ppdInstallableConflict(ppd, "Resolution", choice->choice))
       {
-	papplLog(system, PAPPL_LOGLEVEL_ERROR,
-		 "Invalid resolution: %s, using 300 dpi", ppd_attr->value);
-	driver_data->x_resolution[0] = 300;
-	driver_data->y_resolution[0] = 300;
+	if ((k = sscanf(choice->choice, "%dx%d",
+			&(driver_data->x_resolution[j]),
+			&(driver_data->y_resolution[j]))) == 1)
+	  driver_data->y_resolution[j] = driver_data->x_resolution[j];
+	else if (k <= 0)
+	{
+	  papplLog(system, PAPPL_LOGLEVEL_ERROR,
+		   "Invalid resolution: %s", choice->choice);
+	  continue;
+	}
+	// Default resolution
+	if (j == 0 ||
+	    (!update && choice->marked) ||
+	    (update &&
+	     def_res_x == driver_data->x_resolution[j] &&
+	     def_res_y == driver_data->y_resolution[j]))
+        {
+	  def_choice = choice;
+	  driver_data->x_default = driver_data->x_resolution[j];
+	  driver_data->y_default = driver_data->y_resolution[j];
+	}
+	for (k = j - 1; k >= 0; k --)
+	{
+	  int       x1, y1,               // First X and Y resolution
+	            x2, y2,               // Second X and Y resolution
+	            temp;                 // Swap variable
+	  x1 = driver_data->x_resolution[k];
+	  y1 = driver_data->y_resolution[k];
+	  x2 = driver_data->x_resolution[k + 1];
+	  y2 = driver_data->y_resolution[k + 1];
+	  if (x2 < x1 || (x2 == x1 && y2 < y1))
+	  {
+	    temp                             = driver_data->x_resolution[k];
+	    driver_data->x_resolution[k]     = driver_data->x_resolution[k + 1];
+	    driver_data->x_resolution[k + 1] = temp;
+	    temp                             = driver_data->y_resolution[k];
+	    driver_data->y_resolution[k]     = driver_data->y_resolution[k + 1];
+	    driver_data->y_resolution[k + 1] = temp;
+	  }
+	}
+	j ++;
       }
+    if (j > 0)
+    {
+      driver_data->num_resolution = j;
+      ppdMarkOption(ppd, "Resolution", def_choice->choice);
     }
     else
-    {
       papplLog(system, PAPPL_LOGLEVEL_WARN,
-	       "No default resolution, using 300 dpi");
-      driver_data->x_resolution[0] = 300;
-      driver_data->y_resolution[0] = 300;
-    }
+	       "No valid resolution choice found, using 300 dpi");
+  }
+  else if ((ppd_attr = ppdFindAttr(ppd, "DefaultResolution", NULL)) != NULL)
+  {
+    // Use the PPD-defined default resolution...
+    if ((j = sscanf(ppd_attr->value, "%dx%d",
+		    &(driver_data->x_resolution[0]),
+		    &(driver_data->y_resolution[0]))) == 1)
+      driver_data->y_resolution[0] = driver_data->x_resolution[0];
+    else if (j <= 0)
+      papplLog(system, PAPPL_LOGLEVEL_ERROR,
+	       "Invalid default resolution: %s, using 300 dpi",
+	       ppd_attr->value);
+    driver_data->num_resolution = (j > 0 ? 1 : 0);
+  }
+  else
+    papplLog(system, PAPPL_LOGLEVEL_WARN,
+	     "No resolution information in PPD, using 300 dpi");
+  if (driver_data->num_resolution == 0)
+  {
+    driver_data->x_resolution[0] = 300;
+    driver_data->y_resolution[0] = 300;
     driver_data->num_resolution = 1;
+  }
+  if (driver_data->x_default == 0 || driver_data->y_default == 0)
+  {
     driver_data->x_default = driver_data->x_resolution[0];
     driver_data->y_default = driver_data->y_resolution[0];
   }
@@ -1242,21 +1285,31 @@ ps_driver_setup(
   // Media source
   if ((count = pc->num_sources) > 0)
   {
-    if (count > PAPPL_MAX_SOURCE)
-      count = PAPPL_MAX_SOURCE;
-    driver_data->num_source = count;
-    choice = ppdFindMarkedChoice(ppd, pc->source_option);
+    if (!update)
+      choice = ppdFindMarkedChoice(ppd, pc->source_option);
+    else
+      for (i = 0; i < driver_data->num_source; i ++)
+	free((char *)(driver_data->source[i]));
     def_source = NULL;
-    for (i = 0, pwg_map = pc->sources; i < count; i ++, pwg_map ++)
-    {
-      driver_data->source[i] = strdup(pwg_map->pwg);
-      if (choice && !strcmp(pwg_map->ppd, choice->choice))
-	def_source = driver_data->source[i];
-    }
-    if (def_source == NULL)
-      def_source = driver_data->source[0];
+    for (i = 0, j = 0, pwg_map = pc->sources;
+	 i < count && j < PAPPL_MAX_SOURCE;
+	 i ++, pwg_map ++)
+      if (!ppdInstallableConflict(ppd, pc->source_option, pwg_map->ppd))
+      {
+	driver_data->source[j] = strdup(pwg_map->pwg);
+	if (j == 0 ||
+	    (!update && choice && !strcmp(pwg_map->ppd, choice->choice)) ||
+	    (update &&
+	     !strcmp(pwg_map->pwg, driver_data->media_default.source)))
+	{
+	  def_source = driver_data->source[j];
+	  ppdMarkOption(ppd, pc->source_option, pwg_map->ppd);
+	}
+	j ++;
+      }
+    driver_data->num_source = j;
   }
-  else
+  if (count == 0 || driver_data->num_source == 0)
   {
     driver_data->num_source = 1;
     driver_data->source[0] = strdup("default");
@@ -1266,21 +1319,31 @@ ps_driver_setup(
   // Media type
   if ((count = pc->num_types) > 0)
   {
-    if (count > PAPPL_MAX_SOURCE)
-      count = PAPPL_MAX_SOURCE;
-    driver_data->num_type = count;
-    choice = ppdFindMarkedChoice(ppd, "MediaType");
+    if (!update)
+      choice = ppdFindMarkedChoice(ppd, "MediaType");
+    else
+      for (i = 0; i < driver_data->num_type; i ++)
+	free((char *)(driver_data->type[i]));
     def_type = NULL;
-    for (i = 0, pwg_map = pc->types; i < count; i ++, pwg_map ++)
-    {
-      driver_data->type[i] = strdup(pwg_map->pwg);
-      if (choice && !strcmp(pwg_map->ppd, choice->choice))
-	def_type = driver_data->type[i];
-    }
-    if (def_type == NULL)
-      def_type = driver_data->type[0];
+    for (i = 0, j = 0, pwg_map = pc->types;
+	 i < count && j < PAPPL_MAX_TYPE;
+	 i ++, pwg_map ++)
+      if (!ppdInstallableConflict(ppd, "MediaType", pwg_map->ppd))
+      {
+	driver_data->type[j] = strdup(pwg_map->pwg);
+	if (j == 0 ||
+	    (!update && choice && !strcmp(pwg_map->ppd, choice->choice)) ||
+	    (update &&
+	     !strcmp(pwg_map->pwg, driver_data->media_default.type)))
+	{
+	  def_type = driver_data->type[j];
+	  ppdMarkOption(ppd, "MediaType", pwg_map->ppd);
+	}
+	j ++;
+      }
+    driver_data->num_type = j;
   }
-  else
+  if (count == 0 || driver_data->num_type == 0)
   {
     driver_data->num_type = 1;
     driver_data->type[0] = strdup("auto");
@@ -1291,32 +1354,41 @@ ps_driver_setup(
   def_left = def_right = def_top = def_bottom = -1;
   driver_data->borderless = false;
   count = pc->num_sizes;
-  if (count > PAPPL_MAX_MEDIA)
-    count = PAPPL_MAX_MEDIA;
-  driver_data->num_media = count;
-  choice = ppdFindMarkedChoice(ppd, "PageSize");
-  for (i = 0, pwg_size = pc->sizes; i < pc->num_sizes; i ++, pwg_size ++)
-  {
-    if (i < count)
+  if (!update)
+    choice = ppdFindMarkedChoice(ppd, "PageSize");
+  else
+    for (i = 0; i < driver_data->num_media; i ++)
+      free((char *)(driver_data->media[i]));
+  def_media = NULL;
+  for (i = 0, j = 0, pwg_size = pc->sizes;
+       i < count && j < PAPPL_MAX_MEDIA;
+       i ++, pwg_size ++)
+    if (!ppdInstallableConflict(ppd, "PageSize", pwg_size->map.ppd))
     {
-      driver_data->media[i] =
+      driver_data->media[j] =
 	strdup(pwg_size->map.pwg);
-      if (choice && !strcmp(pwg_size->map.ppd, choice->choice))
-	ps_media_col(pwg_size, def_source, def_type, 0, 0, 0,
-		     &(driver_data->media_default));
+      if (j == 0 ||
+	  (!update && choice && !strcmp(pwg_size->map.ppd, choice->choice)) ||
+	  (update &&
+	   !strcmp(pwg_size->map.pwg, driver_data->media_default.size_name)))
+      {
+	def_media = pwg_size;
+	ppdMarkOption(ppd, "PageSize", pwg_size->map.ppd);
+      }
+      if (pwg_size->left > def_left)
+	def_left = pwg_size->left;
+      if (pwg_size->right > def_right)
+	def_right = pwg_size->right;
+      if (pwg_size->top > def_top)
+	def_top = pwg_size->top;
+      if (pwg_size->bottom > def_bottom)
+	def_bottom = pwg_size->bottom;
+      if (pwg_size->left == 0 && pwg_size->right == 0 &&
+	  pwg_size->top == 0 && pwg_size->bottom == 0)
+	driver_data->borderless = true;
+      j ++;
     }
-    if (pwg_size->left > def_left)
-      def_left = pwg_size->left;
-    if (pwg_size->right > def_right)
-      def_right = pwg_size->right;
-    if (pwg_size->top > def_top)
-      def_top = pwg_size->top;
-    if (pwg_size->bottom > def_bottom)
-      def_bottom = pwg_size->bottom;
-    if (pwg_size->left == 0 && pwg_size->right == 0 &&
-	pwg_size->top == 0 && pwg_size->bottom == 0)
-      driver_data->borderless = true;
-  }
+  driver_data->num_media = j;
   if (def_left < 0)
     def_left = 635;
   if (def_right < 0)
@@ -1327,6 +1399,11 @@ ps_driver_setup(
     def_bottom = 1270;
   driver_data->left_right = (def_left > def_right ? def_left : def_right);
   driver_data->bottom_top = (def_bottom > def_top ? def_bottom : def_right);
+
+  // Set default for media
+  if (def_media)
+    ps_media_col(def_media, def_source, def_type, 0, 0, 0,
+		 &(driver_data->media_default));
 
   // "media-ready" not defined in PPDs
   // For "media-ready" we need to actually query the printer XXX
@@ -1350,17 +1427,32 @@ ps_driver_setup(
   // Output bins
   if ((count = pc->num_bins) > 0)
   {
-    if (count > PAPPL_MAX_BIN)
-      count = PAPPL_MAX_BIN;
-    driver_data->num_bin = count;
-    choice = ppdFindMarkedChoice(ppd, "OutputBin");
-    driver_data->bin_default = 0;
-    for (i = 0, pwg_map = pc->bins; i < count; i ++, pwg_map ++)
+    if (!update)
+      choice = ppdFindMarkedChoice(ppd, "OutputBin");
+    else
     {
-      driver_data->bin[i] = strdup(pwg_map->pwg);
-      if (choice && !strcmp(pwg_map->ppd, choice->choice))
-	driver_data->bin_default = i;
+      def_bin = strdup(driver_data->bin[driver_data->bin_default]);
+      for (i = 0; i < driver_data->num_bin; i ++)
+	free((char *)(driver_data->bin[i]));
     }
+    driver_data->bin_default = 0;
+    for (i = 0, j = 0, pwg_map = pc->bins;
+	 i < count && j < PAPPL_MAX_BIN;
+	 i ++, pwg_map ++)
+      if (!ppdInstallableConflict(ppd, "OutputBin", pwg_map->ppd))
+      {
+	driver_data->bin[j] = strdup(pwg_map->pwg);
+	if ((!update && choice && !strcmp(pwg_map->ppd, choice->choice)) ||
+	    (update && !strcmp(pwg_map->pwg, def_bin)))
+	{
+	  driver_data->bin_default = j;
+	  ppdMarkOption(ppd, "OutputBin", pwg_map->ppd);
+	}
+	j ++;
+      }
+    driver_data->num_bin = j;
+    if (update)
+      free(def_bin);
   }
   else
   {
@@ -1386,6 +1478,15 @@ ps_driver_setup(
   // vendor option, so that the default for the options can get set in
   // the web interface or settings of these options can be supplied on
   // the command line.
+
+  // Clean up old option lists on update
+  if (update)
+    for (i = 0; i < driver_data->num_vendor; i ++)
+    {
+      free((char *)(driver_data->vendor[i]));
+      if (extension->vendor_ppd_options[i])
+	free((char *)(extension->vendor_ppd_options[i]));
+    }
 
   // Go through all the options of the PPD file
   driver_data->num_vendor = 0;
@@ -1414,8 +1515,10 @@ ps_driver_setup(
 		 "printer.", option->keyword, option->text);
       }
 
-      // Skip the group for installable options as we do not (yet) support
-      // option conflicts/constraints
+      // Skip the group for installable options here, as they should not
+      // show on the "Printing Defaults" page nor be listed in the response
+      // to a get-printer-atrributes IPP request from a client.
+      // Only note the fact that we have such options in the PPD file
       if (strncasecmp(group->name, "Installable", 11) == 0)
       {
 	papplLog(system, PAPPL_LOGLEVEL_DEBUG,
@@ -1454,6 +1557,10 @@ ps_driver_setup(
 	continue;
       }
 
+      // Check whether this option makes sense to be shown with respect to
+      // the installable accessory configuration of the printer ("Installable
+      // Options") by how many choices are actually relevant XXX
+
       // IPP-style names
       ppdPwgUnppdizeName(option->text, ipp_opt, sizeof(ipp_opt), NULL);
       snprintf(ipp_supported, sizeof(ipp_supported), "%s-supported", ipp_opt);
@@ -1475,11 +1582,49 @@ ps_driver_setup(
 	{
 	  // Create a boolean IPP option, as human-readable choices "true"
 	  // and "false" are not very user-friendly
+
+	  // On update, remove IPP attributes, keep default
 	  default_choice = 0;
-	  for (k = 0; k < 2; k ++)
-	    if (option->choices[k].marked &&
-		!strcasecmp(option->choices[k].text, "true"))
-	      default_choice = 1;
+	  if (update)
+          {
+	    ippDeleteAttribute(*driver_attrs,
+			       ippFindAttribute(*driver_attrs, ipp_supported,
+						IPP_TAG_ZERO));
+	    attr = ippFindAttribute(*driver_attrs, ipp_default, IPP_TAG_ZERO);
+	    if (attr)
+	    {
+	      default_choice = ippGetBoolean(attr, 0);
+	      ippDeleteAttribute(*driver_attrs, attr);
+	    }
+	    else
+	      default_choice = 0;
+	  }
+	  if (ppdInstallableConflict(ppd, option->keyword,
+				     option->choices[0].choice))
+	    default_choice = -1;
+	  if (ppdInstallableConflict(ppd, option->keyword,
+				     option->choices[1].choice))
+	  {
+	    if (default_choice >= 0)
+	      ppdMarkOption(ppd, option->keyword, option->choices[0].choice);
+	    default_choice = -1;
+	  }
+	  else if (default_choice < 0)
+	    ppdMarkOption(ppd, option->keyword, option->choices[1].choice);
+	  if (default_choice < 0)
+	  {
+	    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+		     "  -> Skipping - Boolean option does not make sense with current accessory configuration");
+	    continue;
+	  }
+	  if (!update)
+	  {
+	    default_choice = 0;
+	    for (k = 0; k < 2; k ++)
+	      if (option->choices[k].marked &&
+		  !strcasecmp(option->choices[k].text, "true"))
+		default_choice = 1;
+	  }
 	  papplLog(system, PAPPL_LOGLEVEL_DEBUG,
 		   "  Default: %s", (default_choice ? "true" : "false"));
 	  ippAddBoolean(*driver_attrs, IPP_TAG_PRINTER, ipp_supported, 1);
@@ -1489,28 +1634,70 @@ ps_driver_setup(
 	else
 	{
 	  // Create an enumerated-choice IPP option
-	  choice_list = (char **)calloc(option->num_choices, sizeof(char *));
-	  default_choice = 0;
-	  for (k = 0; k < option->num_choices; k ++)
-	  {
-	    ppdPwgUnppdizeName(option->choices[k].text,
-			       ipp_choice, sizeof(ipp_choice), NULL);
-	    choice_list[k] = strdup(ipp_choice);
-	    if (option->choices[k].marked)
-	      default_choice = k;
-	    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-		     "  Adding choice \"%s\" (\"%s\") as \"%s\"%s",
-		     option->choices[k].choice, option->choices[k].text,
-		     ipp_choice, option->choices[k].marked ? " (default)" : "");
+
+	  // On update, remove IPP attributes, keep default
+	  if (update)
+          {
+	    ippDeleteAttribute(*driver_attrs,
+			       ippFindAttribute(*driver_attrs, ipp_supported,
+						IPP_TAG_ZERO));
+	    attr = ippFindAttribute(*driver_attrs, ipp_default, IPP_TAG_ZERO);
+	    if (attr)
+	    {
+	      ippAttributeString(attr, buf, sizeof(buf));
+	      ippDeleteAttribute(*driver_attrs, attr);
+	    }
+	    else
+	      buf[0] = '\0';
 	  }
-	  ippAddStrings(*driver_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
-			ipp_supported, option->num_choices, NULL,
-			(const char * const *)choice_list);
-	  ippAddString(*driver_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
-		       ipp_default, NULL, choice_list[default_choice]);
-	  for (k = 0; k < option->num_choices; k ++)
+	  choice_list = (char **)calloc(option->num_choices, sizeof(char *));
+	  first_choice = -1;
+	  default_choice = -1;
+	  for (k = 0, l = 0; k < option->num_choices; k ++)
+	    if (!ppdInstallableConflict(ppd, option->keyword,
+					option->choices[k].choice))
+	    {
+	      if (first_choice < 0)
+		first_choice = k;
+	      ppdPwgUnppdizeName(option->choices[k].text,
+				 ipp_choice, sizeof(ipp_choice), NULL);
+	      choice_list[l] = strdup(ipp_choice);
+	      if ((!update && option->choices[k].marked) ||
+		  (update && buf[0] && !strcasecmp(ipp_choice, buf)))
+	      {
+		default_choice = l;
+		ppdMarkOption(ppd, option->keyword, option->choices[k].choice);
+	      }
+	      papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+		       "  Adding choice \"%s\" (\"%s\") as \"%s\"%s",
+		       option->choices[k].choice, option->choices[k].text,
+		       ipp_choice,
+		       default_choice == l ? " (default)" : "");
+	      l ++;
+	    }
+	  if (l > 0 && default_choice < 0)
+	  {
+	    default_choice = 0;
+	    ppdMarkOption(ppd, option->keyword,
+			  option->choices[first_choice].choice);
+	  }
+	  if (l >= 2)
+	  {
+	    ippAddStrings(*driver_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
+			  ipp_supported, l, NULL,
+			  (const char * const *)choice_list);
+	    ippAddString(*driver_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
+			 ipp_default, NULL, choice_list[default_choice]);
+	  }
+	  for (k = 0; k < l; k ++)
 	    free(choice_list[k]);
 	  free(choice_list);
+	  if (l < 2)
+	  {
+	    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+		     "   -> Skipping - Option does not make sense with current accessory configuration");
+	    continue;
+	  }
 	}
       }
       else
@@ -2000,7 +2187,7 @@ ps_printer_web_device_config(
   if (!papplClientHTMLAuthorize(client))
     return;
 
-  // Handle POSTs to poll default settings...
+  // Handle POSTs to set "Installable Options" and poll default settings...
   if (papplClientGetMethod(client) == HTTP_STATE_POST)
   {
     int			num_form = 0;	// Number of form variable
@@ -2103,6 +2290,13 @@ ps_printer_web_device_config(
 					  IPP_TAG_ZERO));
       ippAddString(driver_attrs, IPP_TAG_PRINTER, IPP_TAG_TEXT,
 		   "installable-options-default", NULL, buf);
+
+      // Update the driver data to correspond with the printer hardware
+      // accessory configuration ("Installable Options" in the PPD)
+      //ps_driver_setup(system, NULL, NULL, NULL, driver_data, &driver_attrs, NULL);
+
+      // Save the updated driver data back to the printer
+      //papplPrinterSetDriverData(printer, driver_data, NULL);
     }
     else if (!strcmp(action, "poll-installable"))
     {
@@ -2737,7 +2931,7 @@ ps_setup(pappl_system_t *system)      // I - System
 		!strstr(ppd->record.device_id, "MODEL:hp9") &&
 		!strstr(ppd->record.device_id, "MODEL:HP2"))
 	    {
-	      // Cnonvert device ID to make/model string, so that we can add
+	      // Convert device ID to make/model string, so that we can add
 	      // the language for building final index strings
 	      mfg_mdl = ieee1284NormalizeMakeAndModel(ppd->record.device_id,
 						      NULL,
@@ -2886,10 +3080,36 @@ static bool                   // O - `true` on success, `false` on failure
 ps_status(
     pappl_printer_t *printer) // I - Printer
 {
-  //char	driver_name[256];     // Driver name
+  pappl_system_t         *system;		// System (for logging)
+  pappl_pr_driver_data_t driver_data;
+  ipp_t                  *driver_attrs;
+  ps_driver_extension_t  *extension;
+  //char	          driver_name[256];     // Driver name
 
-  (void)printer;
+
+  //(void)printer;
   
+  // Get system for logging...
+  system = papplPrinterGetSystem(printer);
+
+  papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	   "XXX Status callback called for printer %s.",
+	   papplPrinterGetName(printer));
+
+  // Load the driver data
+  papplPrinterGetDriverData(printer, &driver_data);
+  driver_attrs = papplPrinterGetDriverAttributes(printer);
+  extension = (ps_driver_extension_t *)driver_data.extension;
+  if (!extension->updated)
+  {
+    // Update the driver data to correspond with the printer hardware
+    // accessory configuration ("Installable Options" in the PPD)
+    //ps_driver_setup(system, NULL, NULL, NULL, driver_data, &driver_attrs, NULL);
+
+    // Save the updated driver data back to the printer
+    //papplPrinterSetDriverData(printer, driver_data, NULL);
+  }
+
   //papplPrinterGetDriverName(printer);
 
   // Use commandtops CUPS filter code to check status here (ink levels, ...)
