@@ -68,6 +68,17 @@ This Printer Application is a working model for
   field before make/model lookup we assure that if PostScript is
   provided by an add-on module that the module is actually installed.
 
+- The printer capabilities for a given printer model (a "driver" in
+  the Printer Application) are not static throughout the life of the
+  print queue set up in the Printer Application. The user can
+  configure via a page in the web admin interface which hardware
+  accessories (extra paper trays, duplex unit, finishers, ...) are
+  installed on the printer and the Printer Application updates the
+  driver data structure and with this the printer capabilities. The
+  response to a get-printer-attributes IPP request gets updated
+  appropriately.
+
+
 ## KNOWN ISSUES
 
 - This Printer Application and its snapping is derived from the
@@ -88,7 +99,7 @@ This Printer Application is a working model for
 - Add PPD files via web interface
 
 - Build options for cups-filters, to build without libqpdf and/or
-  withour libppd, the former will allow to create the Snap of this
+  without libppd, the former will allow to create the Snap of this
   Printer Application without downloading and building QPDF
 
 - Better way to download HPLIP for grabbing the PostScript PPD files
