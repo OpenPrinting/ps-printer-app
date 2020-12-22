@@ -90,6 +90,9 @@ typedef struct ps_job_data_s		// Job data
 #define SYSTEM_VERSION_ARR_2 0
 #define SYSTEM_VERSION_ARR_3 0
 
+// State file
+
+#define STATE_FILE "/tmp/ps_printer_app.state"
 
 // Test page
 
@@ -868,6 +871,29 @@ static void   ps_driver_delete(
 //
 // 'ps_driver_setup()' - PostScript driver setup callback.
 //
+//                       Runs in two modes: Init and Update
+//
+//                       It runs in Init mode when the
+//                       driver_data->extension is still NULL, meaning
+//                       that the extension structure is not yet
+//                       defined. This is the case when the printer
+//                       data structure is created on startup or on
+//                       adding a printer. The we load and read the
+//                       PPD and enter the properties into the driver
+//                       data structure, not taking into account any
+//                       user defaults or accessory settings.
+//
+//                       When called again with the data structure
+//                       already present, it runs in Update mode,
+//                       applying yser defaults and mosifying the data
+//                       structure if the user changed the
+//                       configuration of installable accessories.
+//                       This mode is triggered when called by the
+//                       ps_status() callback which in turn is called
+//                       after completely loading the printer's state
+//                       file entry or when doing changes on the
+//                       "Device Settings" web interface page.
+//
 
 static bool				   // O - `true` on success, `false`
                                            //     on failure
@@ -909,6 +935,7 @@ ps_driver_setup(
   pwg_map_t    *pwg_map;
   pwg_size_t   *pwg_size;
   ppd_pwg_finishings_t *finishings;
+  pappl_media_col_t tmp_col;
   int          count;
   bool         pollable;
   char         buf[1024],
@@ -1020,16 +1047,6 @@ ps_driver_setup(
 
     ppdMarkDefaults(ppd);
 
-    // Get settings of the "Installable Options" from the previous session
-    if ((attr = ippFindAttribute(*driver_attrs, "installable-options-default",
-				 IPP_TAG_ZERO)) != NULL &&
-	ippAttributeString(attr, buf, sizeof(buf)) > 0)
-    {
-      options = NULL;
-      num_options = cupsParseOptions(buf, 0, &options);
-      ppdMarkOptions(ppd, num_options, options);
-    }
-
     if ((pc = ppdCacheCreateWithPPD(ppd)) != NULL)
       ppd->cache = pc;
 
@@ -1061,22 +1078,45 @@ ps_driver_setup(
     driver_data->testpage_cb        = ps_testpage;
     driver_data->format             = "application/vnd.printer-specific";
     driver_data->orient_default     = IPP_ORIENT_NONE;
-    driver_data->quality_default    = IPP_QUALITY_NORMAL;
 
     // Make and model
     strncpy(driver_data->make_and_model,
 	    ppd->nickname,
 	    sizeof(driver_data->make_and_model));
 
+    // We are in Init mode
     update = false;
   }
   else
   {
     extension = (ps_driver_extension_t *)driver_data->extension;
     ppd = extension->ppd;
+    pc = ppd->cache;
     extension->updated = true;
 
+    // We are in Update mode
     update = true;
+  }
+
+  // Note that we take into account option choice conflicts with the
+  // configuration of installable accessories only in Update mode,
+  // this way all options and choices are available after first
+  // initialization (Init mode) so that all user defaults loaded from
+  // the state file get accepted.
+  //
+  // Only at the end of the printer entry in the state file the
+  // accessory configuration gets read. After that we re-run in Update
+  // mode to correct the options and choices for the actual accessory
+  // configuration.
+
+  // Get settings of the "Installable Options" from the previous session
+  if ((attr = ippFindAttribute(*driver_attrs, "installable-options-default",
+			       IPP_TAG_ZERO)) != NULL &&
+      ippAttributeString(attr, buf, sizeof(buf)) > 0)
+  {
+    options = NULL;
+    num_options = cupsParseOptions(buf, 0, &options);
+    ppdMarkOptions(ppd, num_options, options);
   }
 
   // Print speed in pages per minute (PPDs do not show different values for
@@ -1101,7 +1141,7 @@ ps_driver_setup(
     driver_data->output_face_up = false;
 
   // No orientation requested by default
-  driver_data->orient_default = IPP_ORIENT_NONE;
+  if (!update) driver_data->orient_default = IPP_ORIENT_NONE;
 
   // Supported color modes
   if (ppd->color_device)
@@ -1117,11 +1157,14 @@ ps_driver_setup(
     driver_data->color_default = PAPPL_COLOR_MODE_MONOCHROME;
   }
 
-  // These parameters are usually not defined in PPDs
-  driver_data->content_default = PAPPL_CONTENT_AUTO;
-  driver_data->quality_default = IPP_QUALITY_NORMAL; // XXX Check with presets/
-                                                     // resolution
-  driver_data->scaling_default = PAPPL_SCALING_AUTO;
+  // These parameters are usually not defined in PPDs but a standard IPP
+  // options settable in the web interface
+  if (!update)
+  {
+    driver_data->content_default = PAPPL_CONTENT_AUTO;
+    driver_data->quality_default = IPP_QUALITY_NORMAL;
+    driver_data->scaling_default = PAPPL_SCALING_AUTO;
+  }
 
   // Raster graphics modes fo PWG Raster input
   if (ppd->color_device)
@@ -1138,8 +1181,8 @@ ps_driver_setup(
   driver_data->duplex = PAPPL_DUPLEX_NONE;
   if (!update) driver_data->sides_default = PAPPL_SIDES_ONE_SIDED;
   if (pc->sides_2sided_long &&
-      !ppdInstallableConflict(ppd, pc->sides_option,
-			      pc->sides_2sided_long))
+      !(update && ppdInstallableConflict(ppd, pc->sides_option,
+					 pc->sides_2sided_long)))
   {
     driver_data->sides_supported |= PAPPL_SIDES_TWO_SIDED_LONG_EDGE;
     driver_data->duplex = PAPPL_DUPLEX_NORMAL;
@@ -1149,8 +1192,8 @@ ps_driver_setup(
       driver_data->sides_default = PAPPL_SIDES_TWO_SIDED_LONG_EDGE;
   }
   if (pc->sides_2sided_short &&
-      !ppdInstallableConflict(ppd, pc->sides_option,
-			      pc->sides_2sided_short))
+      !(update && ppdInstallableConflict(ppd, pc->sides_option,
+					 pc->sides_2sided_short)))
   {
     driver_data->sides_supported |= PAPPL_SIDES_TWO_SIDED_SHORT_EDGE;
     driver_data->duplex = PAPPL_DUPLEX_NORMAL;
@@ -1172,10 +1215,11 @@ ps_driver_setup(
        finishings;
        finishings = (ppd_pwg_finishings_t *)cupsArrayNext(pc->finishings))
   {
-    for (i = finishings->num_options, opt = finishings->options; i > 0;
-	 i --, opt ++)
-      if (ppdInstallableConflict(ppd, opt->name, opt->value))
-	break;
+    if (update)
+      for (i = finishings->num_options, opt = finishings->options; i > 0;
+	   i --, opt ++)
+	if (ppdInstallableConflict(ppd, opt->name, opt->value))
+	  break;
     if (i > 0)
       continue;
     if (finishings->value == IPP_FINISHINGS_STAPLE)
@@ -1201,7 +1245,8 @@ ps_driver_setup(
     for (i = 0, j = 0, choice = option->choices;
 	 i < count && j < PAPPL_MAX_SOURCE;
 	 i ++, choice ++)
-      if (!ppdInstallableConflict(ppd, "Resolution", choice->choice))
+      if (!(update &&
+	    ppdInstallableConflict(ppd, "Resolution", choice->choice)))
       {
 	if ((k = sscanf(choice->choice, "%dx%d",
 			&(driver_data->x_resolution[j]),
@@ -1294,7 +1339,8 @@ ps_driver_setup(
     for (i = 0, j = 0, pwg_map = pc->sources;
 	 i < count && j < PAPPL_MAX_SOURCE;
 	 i ++, pwg_map ++)
-      if (!ppdInstallableConflict(ppd, pc->source_option, pwg_map->ppd))
+      if (!(update &&
+	    ppdInstallableConflict(ppd, pc->source_option, pwg_map->ppd)))
       {
 	driver_data->source[j] = strdup(pwg_map->pwg);
 	if (j == 0 ||
@@ -1328,7 +1374,7 @@ ps_driver_setup(
     for (i = 0, j = 0, pwg_map = pc->types;
 	 i < count && j < PAPPL_MAX_TYPE;
 	 i ++, pwg_map ++)
-      if (!ppdInstallableConflict(ppd, "MediaType", pwg_map->ppd))
+      if (!(update && ppdInstallableConflict(ppd, "MediaType", pwg_map->ppd)))
       {
 	driver_data->type[j] = strdup(pwg_map->pwg);
 	if (j == 0 ||
@@ -1363,7 +1409,7 @@ ps_driver_setup(
   for (i = 0, j = 0, pwg_size = pc->sizes;
        i < count && j < PAPPL_MAX_MEDIA;
        i ++, pwg_size ++)
-    if (!ppdInstallableConflict(ppd, "PageSize", pwg_size->map.ppd))
+    if (!(update && ppdInstallableConflict(ppd, "PageSize", pwg_size->map.ppd)))
     {
       driver_data->media[j] =
 	strdup(pwg_size->map.pwg);
@@ -1405,14 +1451,108 @@ ps_driver_setup(
     ps_media_col(def_media, def_source, def_type, 0, 0, 0,
 		 &(driver_data->media_default));
 
-  // "media-ready" not defined in PPDs
-  // For "media-ready" we need to actually query the printer XXX
-  for (i = 0; i < driver_data->num_source; i ++)
+  // "media-ready" not defined in PPDs, also cannot be polled from printer
+  // The user configures in the web interface what is loaded.
+  //
+  // The web interface shows only the input trays which are actually
+  // installed on the printer, according to the configuration of
+  // installable accessories on the "Device Settings" page.
+  //
+  // If the user accidentally removes a tray on the "Device Settings" page
+  // and re-adds it while the Printer Application is still running, the
+  // loaded media configuration gets restored.
+  if (update)
   {
-    memcpy(&(driver_data->media_ready[i]), &(driver_data->media_default),
-	   sizeof(pappl_media_col_t));
-    strncpy(driver_data->media_ready[i].source, driver_data->source[i],
-	    sizeof(driver_data->media_ready[i].source));
+    for (i = 0, j = 0, pwg_map = pc->sources;
+	 i < pc->num_sources && j < PAPPL_MAX_SOURCE;
+	 i ++, pwg_map ++)
+    {
+      tmp_col.source[0] = '\0';
+      // Go through all media sources of the PPD file, to keep the order
+      if (!strcasecmp(pwg_map->pwg, driver_data->source[j]))
+      {
+	// Current PPD media source is available (installed)
+	if (strcasecmp(pwg_map->pwg, driver_data->media_ready[j].source))
+	{
+	  // There is no media-col-ready item for the current media source,
+	  // so first check whether we have it in the hidden "Undo" space
+	  // beyond the actually used media items (it should be there when
+	  // we had already set the source as installed earlier during this
+	  // session of the Printer Application
+	  for (k = j;
+	       k < PAPPL_MAX_SOURCE && driver_data->media_ready[k].source[0] &&
+		 strcasecmp(pwg_map->pwg, driver_data->media_ready[k].source);
+	       k ++);
+	  if (!strcasecmp(pwg_map->pwg, driver_data->media_ready[k].source))
+	    // Found desired item in hidden "Undo" space beyond the actually
+	    // used media-col-ready items
+	    memcpy(&tmp_col, &(driver_data->media_ready[k]),
+		   sizeof(pappl_media_col_t));
+	  else if (k == PAPPL_MAX_SOURCE)
+	    k --; // Do not push beyond the memory
+	  else if (k < PAPPL_MAX_SOURCE - 1)
+	    k ++; // Push up also the terminating zero item
+	  // Move up the other items to make space for the new item
+	  memmove(&(driver_data->media_ready[j + 1]),
+		  &(driver_data->media_ready[j]),
+		  (k - j) * sizeof(pappl_media_col_t));
+	  if (tmp_col.source[0])
+	    // Insert item from "Undo" space
+	    memcpy(&(driver_data->media_ready[j]), &tmp_col,
+		   sizeof(pappl_media_col_t));
+	  else
+	  {
+	    // Create new item, as this was not in "Undo" space
+	    memcpy(&(driver_data->media_ready[j]),
+		   &(driver_data->media_default),
+		   sizeof(pappl_media_col_t));
+	    strncpy(driver_data->media_ready[j].source, driver_data->source[j],
+		    sizeof(driver_data->media_ready[j].source));
+	  }
+	}
+	// Go on with next media source
+	j ++;
+      }
+      else
+      {
+	// Current PPD media source is unavailable (accessory not installed)
+	if (!strcasecmp(pwg_map->pwg, driver_data->media_ready[j].source))
+	{
+	  // Current media-col-ready item is the unavailable media source,
+	  // so move current media-col-ready away into the "Undo" space beyond
+	  // the actually used media-col-ready items, so its configuration
+	  // stays saved case we have removed the tray in the installable
+	  // accessories by accident
+	  memcpy(&tmp_col, &(driver_data->media_ready[j]),
+		 sizeof(pappl_media_col_t));
+	  // Pull down the rest
+	  for (k = j + 1;
+	       k < PAPPL_MAX_SOURCE && driver_data->media_ready[k].source[0];
+	       k ++);
+	  memmove(&(driver_data->media_ready[j]),
+		  &(driver_data->media_ready[j + 1]),
+		  (k - j - 1) * sizeof(pappl_media_col_t));
+	  // Drop the saved item into the freed slot in the "Undo" space
+	  memcpy(&(driver_data->media_ready[k - 1]), &tmp_col,
+		 sizeof(pappl_media_col_t));
+	}
+      }
+    }
+  }
+  else
+  {
+    // Create media-col-ready items for each media source
+    for (i = 0; i < driver_data->num_source; i ++)
+    {
+      memcpy(&(driver_data->media_ready[i]), &(driver_data->media_default),
+	     sizeof(pappl_media_col_t));
+      strncpy(driver_data->media_ready[i].source, driver_data->source[i],
+	      sizeof(driver_data->media_ready[i].source));
+    }
+    // Add a terminating zero item to manage the "Undo" space when configuring
+    // available media trays on the printer
+    if (i < PAPPL_MAX_SOURCE)
+      driver_data->media_ready[i].source[0] = '\0';
   }
 
   // Offsets not defined in PPDs
@@ -1439,7 +1579,7 @@ ps_driver_setup(
     for (i = 0, j = 0, pwg_map = pc->bins;
 	 i < count && j < PAPPL_MAX_BIN;
 	 i ++, pwg_map ++)
-      if (!ppdInstallableConflict(ppd, "OutputBin", pwg_map->ppd))
+      if (!(update && ppdInstallableConflict(ppd, "OutputBin", pwg_map->ppd)))
       {
 	driver_data->bin[j] = strdup(pwg_map->pwg);
 	if ((!update && choice && !strcmp(pwg_map->ppd, choice->choice)) ||
@@ -1557,10 +1697,6 @@ ps_driver_setup(
 	continue;
       }
 
-      // Check whether this option makes sense to be shown with respect to
-      // the installable accessory configuration of the printer ("Installable
-      // Options") by how many choices are actually relevant XXX
-
       // IPP-style names
       ppdPwgUnppdizeName(option->text, ipp_opt, sizeof(ipp_opt), NULL);
       snprintf(ipp_supported, sizeof(ipp_supported), "%s-supported", ipp_opt);
@@ -1598,26 +1734,26 @@ ps_driver_setup(
 	    }
 	    else
 	      default_choice = 0;
+	    if (ppdInstallableConflict(ppd, option->keyword,
+				       option->choices[0].choice))
+	      default_choice = -1;
+	    if (ppdInstallableConflict(ppd, option->keyword,
+				       option->choices[1].choice))
+	    {
+	      if (default_choice >= 0)
+		ppdMarkOption(ppd, option->keyword, option->choices[0].choice);
+	      default_choice = -1;
+	    }
+	    else if (default_choice < 0)
+	      ppdMarkOption(ppd, option->keyword, option->choices[1].choice);
+	    if (default_choice < 0)
+	    {
+	      papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+		       "  -> Skipping - Boolean option does not make sense with current accessory configuration");
+	      continue;
+	    }
 	  }
-	  if (ppdInstallableConflict(ppd, option->keyword,
-				     option->choices[0].choice))
-	    default_choice = -1;
-	  if (ppdInstallableConflict(ppd, option->keyword,
-				     option->choices[1].choice))
-	  {
-	    if (default_choice >= 0)
-	      ppdMarkOption(ppd, option->keyword, option->choices[0].choice);
-	    default_choice = -1;
-	  }
-	  else if (default_choice < 0)
-	    ppdMarkOption(ppd, option->keyword, option->choices[1].choice);
-	  if (default_choice < 0)
-	  {
-	    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-		     "  -> Skipping - Boolean option does not make sense with current accessory configuration");
-	    continue;
-	  }
-	  if (!update)
+	  else
 	  {
 	    default_choice = 0;
 	    for (k = 0; k < 2; k ++)
@@ -1654,8 +1790,8 @@ ps_driver_setup(
 	  first_choice = -1;
 	  default_choice = -1;
 	  for (k = 0, l = 0; k < option->num_choices; k ++)
-	    if (!ppdInstallableConflict(ppd, option->keyword,
-					option->choices[k].choice))
+	    if (!(update && ppdInstallableConflict(ppd, option->keyword,
+						   option->choices[k].choice)))
 	    {
 	      if (first_choice < 0)
 		first_choice = k;
@@ -2214,7 +2350,7 @@ ps_printer_web_device_config(
     }
     else if (!strcmp(action, "set-installable"))
     {
-      status = "Setting installed accessory configuration.";
+      status = "Installable accessory configuration saved.";
       buf[0] = '\0';
       for (i = num_form, opt = form; i > 0;
 	   i --, opt ++)
@@ -2291,12 +2427,10 @@ ps_printer_web_device_config(
       ippAddString(driver_attrs, IPP_TAG_PRINTER, IPP_TAG_TEXT,
 		   "installable-options-default", NULL, buf);
 
-      // Update the driver data to correspond with the printer hardware
-      // accessory configuration ("Installable Options" in the PPD)
-      //ps_driver_setup(system, NULL, NULL, NULL, driver_data, &driver_attrs, NULL);
-
-      // Save the updated driver data back to the printer
-      //papplPrinterSetDriverData(printer, driver_data, NULL);
+      // Update the driver data to only show options and choices which make
+      // sense with the current installable accessory configuration
+      extension->updated = false;
+      ps_status(printer);
     }
     else if (!strcmp(action, "poll-installable"))
     {
@@ -2439,8 +2573,6 @@ static void   ps_printer_extra_setup(pappl_printer_t *printer,
 
 
   system = papplPrinterGetSystem(printer);
-
-  // XXX Re-run ps_driver_setup() in update mode as now we have all data loaded
 
   papplPrinterGetDriverData(printer, &driver_data);
   extension = (ps_driver_extension_t *)driver_data.extension;
@@ -3080,20 +3212,21 @@ static bool                   // O - `true` on success, `false` on failure
 ps_status(
     pappl_printer_t *printer) // I - Printer
 {
+  int                    i;
   pappl_system_t         *system;		// System (for logging)
   pappl_pr_driver_data_t driver_data;
-  ipp_t                  *driver_attrs;
   ps_driver_extension_t  *extension;
-  //char	          driver_name[256];     // Driver name
+  ipp_t                  *driver_attrs,
+                         *vendor_attrs;
+  ipp_attribute_t        *attr;
+  char                   buf[1024];
 
 
-  //(void)printer;
-  
   // Get system for logging...
   system = papplPrinterGetSystem(printer);
 
   papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-	   "XXX Status callback called for printer %s.",
+	   "Status callback called for printer %s.",
 	   papplPrinterGetName(printer));
 
   // Load the driver data
@@ -3102,15 +3235,45 @@ ps_status(
   extension = (ps_driver_extension_t *)driver_data.extension;
   if (!extension->updated)
   {
+    if ((attr = ippFindAttribute(driver_attrs, "installable-options-default",
+				 IPP_TAG_ZERO)) != NULL &&
+	ippAttributeString(attr, buf, sizeof(buf)) > 0)
+      papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	       "Applying installable accessories settings: %s", buf);
+    else
+      papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	       "Installable Options settings not found");
+
     // Update the driver data to correspond with the printer hardware
     // accessory configuration ("Installable Options" in the PPD)
-    //ps_driver_setup(system, NULL, NULL, NULL, driver_data, &driver_attrs, NULL);
+    ps_driver_setup(system, NULL, NULL, NULL, &driver_data, &driver_attrs,
+		    NULL);
+
+    // Copy the vendor option IPP attributes
+    vendor_attrs = ippNew();
+    for (i = 0; i < driver_data.num_vendor; i ++)
+    {
+      snprintf(buf, sizeof(buf), "%s-default", driver_data.vendor[i]);
+      attr = ippFindAttribute(driver_attrs, buf, IPP_TAG_ZERO);
+      if (attr)
+	ippCopyAttribute(vendor_attrs, attr, 0);
+      snprintf(buf, sizeof(buf), "%s-supported", driver_data.vendor[i]);
+      attr = ippFindAttribute(driver_attrs, buf, IPP_TAG_ZERO);
+      if (attr)
+	ippCopyAttribute(vendor_attrs, attr, 0);
+    }
 
     // Save the updated driver data back to the printer
-    //papplPrinterSetDriverData(printer, driver_data, NULL);
-  }
+    papplPrinterSetDriverData(printer, &driver_data, NULL);
 
-  //papplPrinterGetDriverName(printer);
+    // Save the vendor options IPP attributes back into the driver attributes
+    driver_attrs = papplPrinterGetDriverAttributes(printer);
+    ippCopyAttributes(driver_attrs, vendor_attrs, 0, NULL, NULL);
+    ippDelete(vendor_attrs);
+
+    // Save new default settings
+    papplSystemSaveState(system, STATE_FILE);
+  }
 
   // Use commandtops CUPS filter code to check status here (ink levels, ...)
   // XXX
@@ -3259,12 +3422,12 @@ system_cb(int           num_options,	// I - Number of options
 			   "<a href=\"https://www.apache.org/licenses/LICENSE-2.0\">"
 			   "Apache License 2.0</a>.");
   papplSystemSetSaveCallback(system, (pappl_save_cb_t)papplSystemSaveState,
-			     (void *)"/tmp/ps_printer_app.state");
+			     (void *)STATE_FILE);
   papplSystemSetVersions(system,
 			 (int)(sizeof(versions) / sizeof(versions[0])),
 			 versions);
 
-  if (!papplSystemLoadState(system, "/tmp/ps_printer_app.state"))
+  if (!papplSystemLoadState(system, STATE_FILE))
     papplSystemSetDNSSDName(system,
 			    system_name ? system_name : SYSTEM_NAME);
 
