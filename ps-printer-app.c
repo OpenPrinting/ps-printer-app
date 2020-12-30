@@ -148,6 +148,9 @@ static void   ps_one_bit_dither_on_draft(pappl_job_t *job,
 int           ps_print_filter_function(int inputfd, int outputfd,
 				       int inputseekable, filter_data_t *data,
 				       void *parameters);
+static int    ps_poll_device_option_defaults(pappl_printer_t *printer,
+					     bool installable,
+					     cups_option_t **defaults);
 static void   ps_printer_web_device_config(pappl_client_t *client,
 					   pappl_printer_t *printer);
 static void   ps_printer_extra_setup(pappl_printer_t *printer, void *data);
@@ -1654,6 +1657,8 @@ ps_driver_setup(
 		 "Default of option \"%s\" (\"%s\") can get queried from "
 		 "printer.", option->keyword, option->text);
       }
+      else
+	pollable = false;
 
       // Skip the group for installable options here, as they should not
       // show on the "Printing Defaults" page nor be listed in the response
@@ -2284,6 +2289,396 @@ ps_print_filter_function(int inputfd,         // I - File descriptor input
 
 
 //
+// 'ps_poll_device_option_defaults()' - This function uses query PostScript
+//                                      code from the PPD file to poll
+//                                      default option settings from the
+//                                      printer
+//
+
+static int                      // O - Number of polled default settings
+                                //     0: Error
+ps_poll_device_option_defaults(
+    pappl_printer_t *printer,   // I - Printer to be polled
+    bool installable,           // I - Poll installable accessory configuration?
+    cups_option_t **defaults)   // O - Option list of polled default settings
+{
+  int                    i, j, k;       // Looping variables
+  pappl_system_t         *system;	// System
+  pappl_pr_driver_data_t driver_data;
+  ps_driver_extension_t  *extension;
+  ppd_file_t             *ppd = NULL;	// PPD file of the printer
+  int                    num_defaults;  // Number of polled default settings
+  pappl_device_t         *device;       // PAPPL output device
+  const char             *name;         // Printer name (for logging)
+  int		         status = 0;	// Exit status
+  ppd_group_t            *group;
+  ppd_option_t	         *option;	// Current option in PPD
+  ppd_attr_t	         *attr;		// Query command attribute
+  const char	         *valptr;	// Pointer into attribute value
+  char		         buf[1024],	// String buffer
+                         *bufptr;	// Pointer into buffer
+  ssize_t	         bytes;		// Number of bytes read
+
+
+  system = papplPrinterGetSystem(printer);
+
+  papplPrinterGetDriverData(printer, &driver_data);
+  extension = (ps_driver_extension_t *)driver_data.extension;
+  ppd = extension->ppd;
+  name = papplPrinterGetName(printer);
+
+  *defaults = NULL;
+  num_defaults = 0;
+
+  //
+  // Open access to printer device...
+  //
+
+  if ((device = papplPrinterOpenDevice(printer)) == NULL)
+  {
+    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	     "Cannot access printer %s: Busy or otherwise not reachable",
+	     name);
+    return (0);
+  }
+
+
+  // Note: We directly output to the printer device without using
+  //       ps_print_filter_function() as the original code
+  //       (commandtops filter of CUPS) only uses printf()/puts() and
+  //       not any PPD-related function of libcups (eq. libppd)
+  //       for the output to the printer
+
+  //
+  // Put the printer in PostScript mode...
+  //
+
+  if (ppd->jcl_begin)
+  {
+    papplDevicePuts(device, ppd->jcl_begin);
+    papplDevicePuts(device, ppd->jcl_ps);
+  }
+
+  papplDevicePuts(device, "%!\n");
+  papplDevicePuts(device, "userdict dup(\\004)cvn{}put (\\004\\004)cvn{}put\n");
+
+  papplDeviceFlush(device);
+
+  //
+  // https://github.com/apple/cups/issues/4028
+  //
+  // As a lot of PPDs contain bad PostScript query code, we need to prevent one
+  // bad query sequence from affecting all auto-configuration.  The following
+  // error handler allows us to log PostScript errors to cupsd.
+  //
+
+  papplDevicePuts(device,
+    "/cups_handleerror {\n"
+    "  $error /newerror false put\n"
+    "  (:PostScript error in \") print cups_query_keyword print (\": ) "
+    "print\n"
+    "  $error /errorname get 128 string cvs print\n"
+    "  (; offending command:) print $error /command get 128 string cvs "
+    "print (\n) print flush\n"
+    "} bind def\n"
+    "errordict /timeout {} put\n"
+    "/cups_query_keyword (?Unknown) def\n");
+  papplDeviceFlush(device);
+
+  //
+  // Loop through every option in the PPD file and ask for the current
+  // value...
+  //
+
+  papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	   "Reading printer-internal default settings...");
+
+  for (i = ppd->num_groups, group = ppd->groups;
+       i > 0;
+       i --, group ++)
+  {
+
+    // When "installable" is true, We are treating only the
+    // "Installable Options" group of options in the PPD file here
+    // otherwise only the other options
+
+    if (strncasecmp(group->name, "Installable", 11) == 0)
+    {
+      if (!installable)
+	continue;
+    }
+    else if (installable)
+      continue;
+
+    for (j = group->num_options, option = group->options;
+	 j > 0;
+	 j --, option ++)
+    {
+      // Does the option have less than 2 choices? Then it does not make
+      // sense to query its default value
+      if (option->num_choices < 2)
+	continue;
+
+      //
+      // See if we have a query command for this option...
+      //
+
+      snprintf(buf, sizeof(buf), "?%s", option->keyword);
+
+      if ((attr = ppdFindAttr(ppd, buf, NULL)) == NULL || !attr->value)
+      {
+	papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+		 "Skipping %s option...", option->keyword);
+	continue;
+      }
+
+      //
+      // Send the query code to the printer...
+      //
+
+      papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	       "Querying %s...", option->keyword);
+
+      for (bufptr = buf, valptr = attr->value; *valptr; valptr ++)
+      {
+	//
+	// Log the query code, breaking at newlines...
+	//
+
+	if (*valptr == '\n')
+	{
+	  *bufptr = '\0';
+	  papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+		   "%s\\n", buf);
+	  bufptr = buf;
+	}
+	else if (*valptr < ' ')
+        {
+	  if (bufptr >= (buf + sizeof(buf) - 4))
+          {
+	    *bufptr = '\0';
+	    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+		     "%s", buf);
+	    bufptr = buf;
+	  }
+
+	  if (*valptr == '\r')
+          {
+	    *bufptr++ = '\\';
+	    *bufptr++ = 'r';
+	  }
+	  else if (*valptr == '\t')
+          {
+	    *bufptr++ = '\\';
+	    *bufptr++ = 't';
+          }
+	  else
+          {
+	    *bufptr++ = '\\';
+	    *bufptr++ = '0' + ((*valptr / 64) & 7);
+	    *bufptr++ = '0' + ((*valptr / 8) & 7);
+	    *bufptr++ = '0' + (*valptr & 7);
+	  }
+	}
+	else
+        {
+	  if (bufptr >= (buf + sizeof(buf) - 1))
+          {
+	    *bufptr = '\0';
+	    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+		     "%s", buf);
+	    bufptr = buf;
+	  }
+
+	  *bufptr++ = *valptr;
+	}
+      }
+
+      if (bufptr > buf)
+      {
+	*bufptr = '\0';
+	papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+		 "%s", buf);
+      }
+
+      papplDevicePrintf(device, "/cups_query_keyword (?%s) def\n",
+			option->keyword); // Set keyword for error reporting
+      papplDevicePuts(device, "{ (");
+      for (valptr = attr->value; *valptr; valptr ++)
+      {
+	if (*valptr == '(' || *valptr == ')' || *valptr == '\\')
+	  papplDevicePuts(device, "\\");
+	papplDeviceWrite(device, valptr, 1);
+      }
+      papplDevicePuts(device,
+		      ") cvx exec } stopped { cups_handleerror } if clear\n");
+                                          // Send query code
+      papplDeviceFlush(device);
+
+      //
+      // Read the response data...
+      //
+
+      bufptr    = buf;
+      buf[0] = '\0';
+      // If no bytes get read (bytes <= 0), repeat up to 100 times in
+      // 100 msec intervals (10 sec timeout)
+      for (k = 0; k < 100; k ++)
+      {
+	//
+	// Read answer from device ...
+	//
+
+	bytes = papplDeviceRead(device, bufptr,
+				sizeof(buf) - (size_t)(bufptr - buf) - 1);
+
+	//
+	// No bytes of the answer arrived yet? Retry ...
+	//
+
+	if (bytes <= 0)
+        {
+	  papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+		   "Answer not ready yet, retrying in 100 ms.");
+	  usleep(100000);
+	  continue;
+        }
+
+	//
+	// No newline at the end? Go on reading ...
+	//
+
+	bufptr += bytes;
+	*bufptr = '\0';
+
+	if (bytes == 0 ||
+	    (bufptr > buf && bufptr[-1] != '\r' && bufptr[-1] != '\n'))
+	  continue;
+
+	//
+	// Trim whitespace and control characters from both ends...
+	//
+
+	bytes = bufptr - buf;
+
+	for (bufptr --; bufptr >= buf; bufptr --)
+	  if (isspace(*bufptr & 255) || iscntrl(*bufptr & 255))
+	    *bufptr = '\0';
+	  else
+	    break;
+
+	for (bufptr = buf; isspace(*bufptr & 255) || iscntrl(*bufptr & 255);
+	     bufptr ++);
+
+	if (bufptr > buf)
+        {
+	  memmove(buf, bufptr, strlen(bufptr) + 1);
+	  bufptr = buf;
+	}
+
+	papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+		 "Got %d bytes.", (int)bytes);
+
+	//
+	// Skip blank lines...
+	//
+
+	if (!buf[0])
+	  continue;
+
+	//
+	// Check the response...
+	//
+
+	if ((bufptr = strchr(buf, ':')) != NULL)
+        {
+	  //
+	  // PostScript code for this option in the PPD is broken; show the
+	  // interpreter's error message that came back...
+	  //
+
+	  papplLog(system, PAPPL_LOGLEVEL_WARN,
+		   "%s", bufptr + 1);
+	  status = 1;
+	  break;
+	}
+
+	//
+	// Verify the result is a valid option choice...
+	//
+
+	if (!ppdFindChoice(option, buf))
+        {
+	  if (!strcasecmp(buf, "Unknown"))
+	  {
+	    papplLog(system, PAPPL_LOGLEVEL_WARN,
+		     "Unknown default setting for option \"%s\"",
+		     option->keyword);
+	    status = 1;
+	    break;
+	  }
+
+	  bufptr    = buf;
+	  buf[0] = '\0';
+	  continue;
+	}
+
+        //
+        // Write out the result and move on to the next option...
+	//
+
+	papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+		 "Read default setting for \"%s\": \"%s\"",
+		 option->keyword, buf);
+	num_defaults = cupsAddOption(option->keyword, buf, num_defaults,
+				     defaults);
+	break;
+      }
+
+      //
+      // Printer did not answer this option's query
+      //
+
+      if (bytes <= 0)
+      {
+	papplLog(system, PAPPL_LOGLEVEL_WARN,
+		 "No answer to query for option %s within 10 sec timeout.",
+		 option->keyword);
+	status = 1;
+      }
+    }
+  }
+
+  //
+  // Finish the job...
+  //
+
+  papplDeviceFlush(device);
+  if (ppd->jcl_end)
+    papplDevicePuts(device, ppd->jcl_end);
+  else
+    papplDevicePuts(device, "\004");
+  papplDeviceFlush(device);
+
+  //
+  // Close connection to the printer device...
+  //
+
+  papplPrinterCloseDevice(printer);
+
+  //
+  // Return...
+  //
+
+  if (status)
+    papplLog(system, PAPPL_LOGLEVEL_WARN,
+	     "Unable to configure some printer options.");
+
+  return (num_defaults);
+}
+
+
+//
 // 'ps_printer_web_device_config()' - Web interface page for entering/polling
 //                                    the configuration of printer add-ons
 //                                    ("Installable Options" in PPD and polling
@@ -2302,7 +2697,7 @@ ps_printer_web_device_config(
   pappl_pr_driver_data_t driver_data;
   ipp_t        *driver_attrs;
   ps_driver_extension_t *extension;
-  ppd_file_t   *ppd = NULL;		// PPD file loaded from collection
+  ppd_file_t   *ppd = NULL;		// PPD file of the printer
   ppd_cache_t  *pc;
   char         *keyword;
   ppd_group_t  *group;
@@ -2326,10 +2721,13 @@ ps_printer_web_device_config(
   // Handle POSTs to set "Installable Options" and poll default settings...
   if (papplClientGetMethod(client) == HTTP_STATE_POST)
   {
-    int			num_form = 0;	// Number of form variable
+    int			num_form = 0;	// Number of form variables
     cups_option_t	*form = NULL;	// Form variables
     int                 num_installables = 0; // Number of installable options 
     cups_option_t	*installables = NULL; // Set installable options
+    int                 num_options = 0;// Number of polled options
+    cups_option_t	*options = NULL;// Polled options
+    ipp_attribute_t     *attr;
     cups_option_t       *opt;           // Option in the form
     const char		*action;	// Form action
     char                buf[1024];
@@ -2413,11 +2811,12 @@ ps_printer_web_device_config(
 	  snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf) - 1,
 		   "%s=%s ", option->keyword, value);
 	}
+	if (buf[0])
+	  buf[strlen(buf) - 1] = '\0';
       }
       cupsFreeOptions(num_installables, installables);
 
       // Put the settings into an IPP attribute to save in the state file
-      buf[strlen(buf) - 1] = '\0';
       papplLog(system, PAPPL_LOGLEVEL_DEBUG,
 	       "\"Installable Options\" marked in PPD: %s", buf);
       ippDeleteAttribute(driver_attrs,
@@ -2434,13 +2833,73 @@ ps_printer_web_device_config(
     }
     else if (!strcmp(action, "poll-installable"))
     {
-      status = "Polling installed accessory information from printer.";
-      // XXX Poll installed options info here
+      // Poll installed options info here
+      num_options = ps_poll_device_option_defaults(printer, true, &options);
+      if (num_options)
+      {
+	status = "Installable accessory configuration polled from printer.";
+
+	// Get current settings of the "Installable Options"
+	num_installables = 0;
+	installables = NULL;
+	if ((attr = ippFindAttribute(driver_attrs,
+				     "installable-options-default",
+				     IPP_TAG_ZERO)) != NULL)
+	{
+	  if (ippAttributeString(attr, buf, sizeof(buf)) > 0)
+	  {
+	    num_installables = cupsParseOptions(buf, 0, &installables);
+	    ppdMarkOptions(ppd, num_installables, installables);
+	  }
+	  ippDeleteAttribute(driver_attrs, attr);
+	}
+
+	// Join polled settings and mark them in the PPD
+	for (i = num_options, opt = options; i > 0; i --, opt ++)
+        {
+	  ppdMarkOption(ppd, opt->name, opt->value);
+	  num_installables = cupsAddOption(opt->name, opt->value,
+					   num_installables, &installables);
+        }
+
+	// Create new option string for saving in the state file
+	buf[0] = '\0';
+	for (i = num_installables, opt = installables; i > 0; i --, opt ++)
+	  snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf) - 1,
+		   "%s=%s ", opt->name, opt->value);
+        if (buf[0])
+	  buf[strlen(buf) - 1] = '\0';
+
+	// Clean up
+	cupsFreeOptions(num_installables, installables);
+	cupsFreeOptions(num_options, options);
+
+        // Put the settings into an IPP attribute to save in the state file
+	papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+		 "\"Installable Options\" marked in PPD: %s", buf);
+	ippAddString(driver_attrs, IPP_TAG_PRINTER, IPP_TAG_TEXT,
+		     "installable-options-default", NULL, buf);
+
+	// Update the driver data to only show options and choices which make
+	// sense with the current installable accessory configuration
+	extension->updated = false;
+	ps_status(printer);
+      }
+      else
+	status = "Could not poll installable accessory configuration from "
+	         "printer.";
     }
     else if (!strcmp(action, "poll-defaults"))
     {
-      status = "Polling default values from printer.";
       // XXX Poll default values here
+      num_options = ps_poll_device_option_defaults(printer, false,
+						   &options);
+      snprintf(buf, sizeof(buf) - 1, "Option defaults polled from printer:");
+      for (i = num_options, opt = options; i > 0; i --, opt ++)
+	snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf) - 1,
+		 " %s=%s", opt->name, opt->value);
+      papplLog(system, PAPPL_LOGLEVEL_DEBUG, "%s", buf);
+      status = buf;
     }
     else
       status = "Unknown action.";
