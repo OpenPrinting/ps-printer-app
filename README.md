@@ -78,6 +78,14 @@ This Printer Application is a working model for
   response to a get-printer-attributes IPP request gets updated
   appropriately.
 
+- PostScript is a full-fledged programming language and many PostScript
+  printers allow querying settings of options and the presence of
+  installable hardware accessories executing appropriate PostScript
+  code. If a setting can get queried, the manufacturer puts the needed
+  PostScript code into the PPD file, together with the queriable option.
+  These queries are supported by the web interface of the Printer
+  Application.
+
 
 ## KNOWN ISSUES
 
