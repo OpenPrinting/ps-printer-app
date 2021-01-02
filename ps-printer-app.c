@@ -972,6 +972,9 @@ ps_driver_setup(
 
   if (driver_data->extension == NULL)
   {
+    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	     "Initializing driver data for driver \"%s\"", driver_name);
+
     if (!ppd_paths || cupsArrayCount(ppd_paths) == 0)
     {
       papplLog(system, PAPPL_LOGLEVEL_ERROR,
@@ -1092,6 +1095,8 @@ ps_driver_setup(
   }
   else
   {
+    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	     "Updating driver data for %s", driver_data->make_and_model);
     extension = (ps_driver_extension_t *)driver_data->extension;
     ppd = extension->ppd;
     pc = ppd->cache;
@@ -2705,6 +2710,8 @@ ps_printer_web_device_config(
   ppd_choice_t *choice;
   ppd_attr_t   *ppd_attr;
   int          default_choice;
+  int          num_options = 0;         // Number of polled options
+  cups_option_t	*options = NULL;        // Polled options
 
 
   system = papplPrinterGetSystem(printer);
@@ -2725,14 +2732,22 @@ ps_printer_web_device_config(
     cups_option_t	*form = NULL;	// Form variables
     int                 num_installables = 0; // Number of installable options 
     cups_option_t	*installables = NULL; // Set installable options
-    int                 num_options = 0;// Number of polled options
-    cups_option_t	*options = NULL;// Polled options
+    int                 num_vendor = 0; // Number of vendor-specific options 
+    cups_option_t	*vendor = NULL; // vendor-specific options
     ipp_attribute_t     *attr;
     cups_option_t       *opt;           // Option in the form
     const char		*action;	// Form action
     char                buf[1024];
     const char          *value;
     char                *ptr1, *ptr2;
+    pwg_map_t           *pwg_map;
+    pwg_size_t          *pwg_size;
+    int                 polled_def_source = -1;
+    const char          *polled_def_size = NULL,
+                        *polled_def_type = NULL;
+    int                 best = 0;
+    char                ipp_supported[128],
+                        ipp_choice[80];
 
     if ((num_form = papplClientGetForm(client, &form)) == 0)
     {
@@ -2833,7 +2848,7 @@ ps_printer_web_device_config(
     }
     else if (!strcmp(action, "poll-installable"))
     {
-      // Poll installed options info here
+      // Poll installed options info
       num_options = ps_poll_device_option_defaults(printer, true, &options);
       if (num_options)
       {
@@ -2872,7 +2887,6 @@ ps_printer_web_device_config(
 
 	// Clean up
 	cupsFreeOptions(num_installables, installables);
-	cupsFreeOptions(num_options, options);
 
         // Put the settings into an IPP attribute to save in the state file
 	papplLog(system, PAPPL_LOGLEVEL_DEBUG,
@@ -2891,15 +2905,189 @@ ps_printer_web_device_config(
     }
     else if (!strcmp(action, "poll-defaults"))
     {
-      // XXX Poll default values here
+      // Poll default option values
       num_options = ps_poll_device_option_defaults(printer, false,
 						   &options);
-      snprintf(buf, sizeof(buf) - 1, "Option defaults polled from printer:");
-      for (i = num_options, opt = options; i > 0; i --, opt ++)
-	snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf) - 1,
-		 " %s=%s", opt->name, opt->value);
-      papplLog(system, PAPPL_LOGLEVEL_DEBUG, "%s", buf);
-      status = buf;
+      if (num_options)
+      {
+	// Read the polled option settings, mark them in the PPD, update them
+	// in the printer data and create a summary for logging
+	status = "Option defaults polled from printer.";
+	snprintf(buf, sizeof(buf) - 1, "Option defaults polled from printer:");
+	for (i = num_options, opt = options; i > 0; i --, opt ++)
+	{
+	  ppdMarkOption(ppd, opt->name, opt->value);
+	  snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf) - 1,
+		   " %s=%s", opt->name, opt->value);
+	  if (!strcasecmp(opt->name, "PageSize"))
+	  {
+	    for (j = 0, pwg_size = pc->sizes; j < pc->num_sizes;
+		 j ++, pwg_size ++)
+	      if (!strcasecmp(opt->value, pwg_size->map.ppd))
+		break;
+	    if (j < pc->num_sizes)
+	    {
+	      for (k = 0; k < driver_data.num_media; k ++)
+		if (!strcasecmp(pwg_size->map.pwg, driver_data.media[k]))
+		  break;
+	      if (k < driver_data.num_media)
+		polled_def_size = driver_data.media[k];
+	    }
+	  }
+	  else if (!strcasecmp(opt->name, pc->source_option)) // InputSlot
+	  {
+	    for (j = 0, pwg_map = pc->sources; j < pc->num_sources;
+		 j ++, pwg_map ++)
+	      if (!strcasecmp(opt->value, pwg_map->ppd))
+		break;
+	    if (j < pc->num_sources)
+	    {
+	      for (k = 0; k < driver_data.num_source; k ++)
+		if (!strcasecmp(pwg_map->pwg, driver_data.source[k]))
+		  break;
+	      if (k < driver_data.num_source)
+		polled_def_source = k;
+	    }
+	  }
+	  else if (!strcasecmp(opt->name, "MediaType"))
+	  {
+	    for (j = 0, pwg_map = pc->types; j < pc->num_types;
+		 j ++, pwg_map ++)
+	      if (!strcasecmp(opt->value, pwg_map->ppd))
+		break;
+	    if (j < pc->num_types)
+	    {
+	      for (k = 0; k < driver_data.num_type; k ++)
+		if (!strcasecmp(pwg_map->pwg, driver_data.type[k]))
+		  break;
+	      if (k < driver_data.num_type)
+		polled_def_type = driver_data.type[k];
+	    }
+	  }
+	  else if (!strcasecmp(opt->name, "Resolution"))
+	  {
+	    if (sscanf(opt->value, "%dx%ddpi",
+		       &driver_data.x_default, &driver_data.y_default) == 1)
+	      driver_data.y_default = driver_data.x_default;
+	  }
+	  else if (!strcasecmp(opt->name, "ColorModel"))
+	  {
+	    if (ppd->color_device)
+	    {
+	      if (strcasestr(opt->value, "Gray") ||
+		  strcasestr(opt->value, "Mono") ||
+		  strcasestr(opt->value, "Black"))
+		driver_data.color_default = PAPPL_COLOR_MODE_MONOCHROME;
+	      else if (strcasestr(opt->value, "Color") ||
+		       strcasestr(opt->value, "RGB") ||
+		       strcasestr(opt->value, "CMY"))
+		driver_data.color_default = PAPPL_COLOR_MODE_COLOR;
+	      else
+		driver_data.color_default = PAPPL_COLOR_MODE_AUTO;
+	    }
+	  }
+	  else if (!strcasecmp(opt->name, "OutputBin"))
+	  {
+	    for (j = 0, pwg_map = pc->bins; j < pc->num_bins; j ++, pwg_map ++)
+	      if (!strcasecmp(opt->value, pwg_map->ppd))
+		break;
+	    if (j < pc->num_bins)
+	    {
+	      for (k = 0; k < driver_data.num_bin; k ++)
+		if (!strcasecmp(pwg_map->pwg, driver_data.bin[k]))
+		  break;
+	      if (k < driver_data.num_bin)
+		driver_data.bin_default = k;
+	    }
+	  }
+	  else if (!strcasecmp(opt->name, pc->sides_option)) // Duplex
+	  {
+	    if (!strcasecmp(opt->value, pc->sides_1sided))
+	      driver_data.sides_default = PAPPL_SIDES_ONE_SIDED;
+	    else if (!strcasecmp(opt->value, pc->sides_2sided_long))
+	      driver_data.sides_default = PAPPL_SIDES_TWO_SIDED_LONG_EDGE;
+	    else if (!strcasecmp(opt->value, pc->sides_2sided_short))
+	      driver_data.sides_default = PAPPL_SIDES_TWO_SIDED_SHORT_EDGE;
+	  }
+	  else if (strcasecmp(opt->name, "PageRegion"))
+	  {
+	    // Vendor options
+	    for (j = 0; j < driver_data.num_vendor; j ++)
+	    {
+	      if (extension->vendor_ppd_options[j] &&
+		  !(strcasecmp(opt->name, extension->vendor_ppd_options[j])))
+	      {
+		if ((option = ppdFindOption(ppd, opt->name)) != NULL &&
+		    (choice = ppdFindChoice(option, opt->value)) != NULL)
+		{
+		  snprintf(ipp_supported, sizeof(ipp_supported),
+			   "%s-supported", driver_data.vendor[j]);
+		  if ((attr = ippFindAttribute(driver_attrs, ipp_supported,
+					       IPP_TAG_ZERO)) != NULL)
+		  {
+		    if (ippGetValueTag(attr) == IPP_TAG_BOOLEAN)
+		    {
+		      if (!strcasecmp(choice->text, "True"))
+			num_vendor = cupsAddOption(driver_data.vendor[j],
+						   "true", num_vendor, &vendor);
+		      else if (!strcasecmp(choice->text, "False"))
+			num_vendor = cupsAddOption(driver_data.vendor[j],
+						   "false",
+						   num_vendor, &vendor);
+		    }
+		    else
+		    {
+		      ppdPwgUnppdizeName(choice->text, ipp_choice,
+					 sizeof(ipp_choice), NULL);
+		      num_vendor = cupsAddOption(driver_data.vendor[j],
+						 ipp_choice,
+						 num_vendor, &vendor);
+		    }
+		  }
+		}
+	      }
+	    }
+	  }
+	}
+
+	// Media Source
+	if (polled_def_source < 0)
+	{
+	  if (polled_def_size || polled_def_type)
+	    for (i = 0; i < driver_data.num_source; i ++)
+	    {
+	      j = 0;
+	      if (polled_def_size &&
+		  !strcasecmp(polled_def_size,
+			      driver_data.media_ready[i].size_name))
+		j += 2;
+	      if (polled_def_type &&
+		  !strcasecmp(polled_def_type,
+			      driver_data.media_ready[i].type))
+		j += 1;
+	      if (j > best)
+	      {
+		best = j;
+		driver_data.media_default = driver_data.media_ready[i];
+	      }
+	    }
+	}
+	else
+	  driver_data.media_default =
+	    driver_data.media_ready[polled_def_source];
+
+	papplLog(system, PAPPL_LOGLEVEL_DEBUG, "%s", buf);
+
+	// Submit the changed default values
+	papplPrinterSetDriverDefaults(printer, &driver_data,
+				      num_vendor, vendor);
+
+	// Clean up
+	if (num_vendor)
+	  cupsFreeOptions(num_vendor, vendor);
+      }
+      else
+	status = "Could not poll option defaults from printer.";
     }
     else
       status = "Unknown action.";
@@ -2941,6 +3129,9 @@ ps_printer_web_device_config(
 	// sense to let it show in the web interface
 	if (option->num_choices < 2)
 	  continue;
+
+	// XXX Show option names of options which got updated by polling
+	// from the printer in bold (they are in list "options").
 
 	papplClientHTMLPrintf(client, "              <tr><th>%s:</th><td>", option->text);
 
@@ -3008,11 +3199,17 @@ ps_printer_web_device_config(
 
   if (extension->defaults_pollable)
   {
+    // XXX If we have already polled and display the page again, show poll
+    // results as options which got updated by polling
+    // with their values (they are in list "options").
     papplClientHTMLStartForm(client, uri, false);
     papplClientHTMLPrintf(client, "          <input type=\"hidden\" name=\"action\" value=\"poll-defaults\"><input type=\"submit\" value=\"Get printing defaults from the printer\"></form><br><br>\n");
   }
 
   papplClientHTMLPrinterFooter(client);
+
+  if (num_options)
+    cupsFreeOptions(num_options, options);
 }
 
 
