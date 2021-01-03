@@ -2712,6 +2712,9 @@ ps_printer_web_device_config(
   int          default_choice;
   int          num_options = 0;         // Number of polled options
   cups_option_t	*options = NULL;        // Polled options
+  cups_option_t *opt;
+  bool         polled_installables = false,
+               polled_defaults = false;
 
 
   system = papplPrinterGetSystem(printer);
@@ -2735,7 +2738,6 @@ ps_printer_web_device_config(
     int                 num_vendor = 0; // Number of vendor-specific options 
     cups_option_t	*vendor = NULL; // vendor-specific options
     ipp_attribute_t     *attr;
-    cups_option_t       *opt;           // Option in the form
     const char		*action;	// Form action
     char                buf[1024];
     const char          *value;
@@ -2853,6 +2855,7 @@ ps_printer_web_device_config(
       if (num_options)
       {
 	status = "Installable accessory configuration polled from printer.";
+	polled_installables = true;
 
 	// Get current settings of the "Installable Options"
 	num_installables = 0;
@@ -2913,6 +2916,8 @@ ps_printer_web_device_config(
 	// Read the polled option settings, mark them in the PPD, update them
 	// in the printer data and create a summary for logging
 	status = "Option defaults polled from printer.";
+	polled_defaults = true;
+
 	snprintf(buf, sizeof(buf) - 1, "Option defaults polled from printer:");
 	for (i = num_options, opt = options; i > 0; i --, opt ++)
 	{
@@ -3104,6 +3109,12 @@ ps_printer_web_device_config(
 
   if (extension->installable_options)
   {
+    papplClientHTMLPuts(client,
+			"          <h3>Installable printer accessories</h3>\n");
+    if (polled_installables)
+      papplClientHTMLPuts(client,
+			  "          <br>Settings obtained from polling the printer are marked with an asterisk (\"*\")</br>\n");
+
     papplClientHTMLStartForm(client, uri, false);
 
     papplClientHTMLPuts(client,
@@ -3130,10 +3141,8 @@ ps_printer_web_device_config(
 	if (option->num_choices < 2)
 	  continue;
 
-	// XXX Show option names of options which got updated by polling
-	// from the printer in bold (they are in list "options").
-
-	papplClientHTMLPrintf(client, "              <tr><th>%s:</th><td>", option->text);
+	papplClientHTMLPrintf(client, "              <tr><th>%s:</th><td>",
+			      option->text);
 
 	if (option->num_choices == 2 &&
 	    ((!strcasecmp(option->choices[0].text, "true") &&
@@ -3177,33 +3186,69 @@ ps_printer_web_device_config(
 	  papplClientHTMLPuts(client, "</select>");
 	}
 
+	// Mark options which got updated by polling from the printer with
+	// an asterisk
+	papplClientHTMLPrintf(client, "%s",
+			      (polled_installables &&
+			       cupsGetOption(option->keyword, num_options,
+					     options) != NULL ? " *" : ""));
+
 	papplClientHTMLPuts(client, "</td></tr>\n");
       }
     }
     papplClientHTMLPuts(client,
-			"              <tr><th></th><td><input type=\"hidden\" name=\"action\" value=\"set-installable\"><input type=\"submit\" value=\"Set\"></td></tr>\n"
-			"            </tbody>\n"
-			"          </table>"
-			"        </form>\n");
-
+			"              <tr><th></th><td><button type=\"submit\" name=\"action\" value=\"set-installable\">Set</button>");
     if (extension->installable_pollable)
     {
       papplClientHTMLStartForm(client, uri, false);
-      papplClientHTMLPrintf(client, "          <input type=\"hidden\" name=\"action\" value=\"poll-installable\"><input type=\"submit\" value=\"Poll from printer\"></form>&nbsp;&nbsp;\n");
+      papplClientHTMLPrintf(client, "\n          &nbsp;<button type=\"submit\" name=\"action\" value=\"poll-installable\">Poll from printer</button>\n");
     }
+    papplClientHTMLPuts(client,
+			"</td></tr>\n"
+			"            </tbody>\n"
+			"          </table>\n"
+			"        </form>\n");
+
   }
 
   if (extension->installable_options &&
       extension->defaults_pollable)
-    papplClientHTMLPrintf(client, "          <hr><br>\n");
+    papplClientHTMLPrintf(client, "          <hr>\n");
 
   if (extension->defaults_pollable)
   {
-    // XXX If we have already polled and display the page again, show poll
-    // results as options which got updated by polling
-    // with their values (they are in list "options").
+    papplClientHTMLPuts(client,
+			"          <h3>Poll printing defaults from the printer</h3>\n");
+
+    papplClientHTMLPuts(client,
+			"          <br>Note that settings polled from the printer overwrite your original settings.</br>\n");
+    if (polled_defaults)
+      papplClientHTMLPuts(client,
+			  "          <br>Polling results:</br>\n");
+
     papplClientHTMLStartForm(client, uri, false);
-    papplClientHTMLPrintf(client, "          <input type=\"hidden\" name=\"action\" value=\"poll-defaults\"><input type=\"submit\" value=\"Get printing defaults from the printer\"></form><br><br>\n");
+    papplClientHTMLPuts(client,
+			"          <table class=\"form\">\n"
+			"            <tbody>\n");
+
+    // If we have already polled and display the page again, show poll
+    // results as options which got updated by polling with their
+    // values (they are in list "options").
+    if (polled_defaults && num_options)
+      for (i = num_options, opt = options; i > 0; i --, opt ++)
+	if ((option = ppdFindOption(ppd, opt->name)) != NULL &&
+	    (choice = ppdFindChoice(option, opt->value)) != NULL)
+	  papplClientHTMLPrintf(client,
+			    "              <tr><th>%s:</th><td>%s</td></tr>\n",
+			    option->text, choice->text);
+
+    papplClientHTMLPrintf(client, "          <tr><th></th><td><input type=\"hidden\" name=\"action\" value=\"poll-defaults\"><input type=\"submit\" value=\"%s\"></td>\n",
+			  (polled_defaults ? "Poll again" : "Poll"));
+
+    papplClientHTMLPuts(client,
+			"            </tbody>\n"
+			"          </table>"
+			"        </form>\n");
   }
 
   papplClientHTMLPrinterFooter(client);
