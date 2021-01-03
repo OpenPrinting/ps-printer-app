@@ -2093,10 +2093,79 @@ ps_identify(
     pappl_identify_actions_t actions, 	// I - Actions to take
     const char               *message)	// I - Message, if any
 {
-  (void)printer;
-  (void)actions;
+  pappl_system_t         *system;	// System (for logging)
+  pappl_pr_driver_data_t driver_data;
+  ps_driver_extension_t  *extension;
+  ppd_file_t             *ppd = NULL;	// PPD file of the printer
+  pappl_device_t         *device;       // PAPPL output device
+  const char             *name;         // Printer name (for logging)
 
-  // Identify a printer using display, flash, sound or speech. XXX
+
+  (void)actions;
+  (void)message;
+
+  // Identify the printer by sending a zero-page PostScript job to
+  // make the display of the printer light up and depending on
+  // hardware mechanics move and/or signal sounds play
+
+  system = papplPrinterGetSystem(printer);
+  papplPrinterGetDriverData(printer, &driver_data);
+  extension = (ps_driver_extension_t *)driver_data.extension;
+  ppd = extension->ppd;
+  name = papplPrinterGetName(printer);
+
+  //
+  // Open access to printer device...
+  //
+
+  if ((device = papplPrinterOpenDevice(printer)) == NULL)
+  {
+    papplLog(system, PAPPL_LOGLEVEL_WARN,
+	     "Cannot access printer %s: Busy or otherwise not reachable",
+	     name);
+    return;
+  }
+
+  // Note: We directly output to the printer device without using
+  //       ps_print_filter_function() as only use printf()/puts() and
+  //       not any PPD-related function of libppd for the output to
+  //       the printer
+
+  //
+  // Put the printer in PostScript mode and initiate a PostScript
+  // file...
+  //
+
+  if (ppd->jcl_begin)
+  {
+    papplDevicePuts(device, ppd->jcl_begin);
+    papplDevicePuts(device, ppd->jcl_ps);
+  }
+
+  papplDevicePuts(device, "%!\n");
+  papplDeviceFlush(device);
+
+  //
+  // Delay...
+  //
+
+  sleep(3);
+
+  //
+  // Finish the job...
+  //
+
+  if (ppd->jcl_end)
+    papplDevicePuts(device, ppd->jcl_end);
+  else
+    papplDevicePuts(device, "\004");
+  papplDeviceFlush(device);
+
+  //
+  // Close connection to the printer device...
+  //
+
+  papplPrinterCloseDevice(printer);
 }
 
 
