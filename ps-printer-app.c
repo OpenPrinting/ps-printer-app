@@ -1414,7 +1414,37 @@ ps_driver_setup(
     for (i = 0; i < driver_data->num_media; i ++)
       free((char *)(driver_data->media[i]));
   def_media = NULL;
-  for (i = 0, j = 0, pwg_size = pc->sizes;
+  j = 0;
+
+  // Custom page size (if defined in PPD)
+  if (pc->custom_min_keyword && pc->custom_max_keyword &&
+      pc->custom_max_width > pc->custom_min_width &&
+      pc->custom_max_length > pc->custom_min_length)
+  {
+    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	     "Adding custom page size:");
+    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	     "  PWG keyword min dimensions: \"%s\"", pc->custom_min_keyword);
+    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	     "  PWG keyword max dimensions: \"%s\"", pc->custom_max_keyword);
+    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	     "  Minimum dimensions (width, length): %dx%d",
+	     pc->custom_min_width, pc->custom_min_length);
+    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	     "  Maximum dimensions (width, length): %dx%d",
+	     pc->custom_max_width, pc->custom_max_length);
+    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	     "  Margins (left, bottom, right, top): %d, %d, %d, %d",
+	     pc->custom_size.left, pc->custom_size.bottom,
+	     pc->custom_size.right, pc->custom_size.top);
+    driver_data->media[j] = strdup(pc->custom_max_keyword);
+    j ++;
+    driver_data->media[j] = strdup(pc->custom_min_keyword);
+    j ++;
+  }
+
+  // Standard page sizes
+  for (i = 0, pwg_size = pc->sizes;
        i < count && j < PAPPL_MAX_MEDIA;
        i ++, pwg_size ++)
     if (!(update && ppdInstallableConflict(ppd, "PageSize", pwg_size->map.ppd)))
@@ -1442,15 +1472,27 @@ ps_driver_setup(
 	driver_data->borderless = true;
       j ++;
     }
+
+  // Number of media entries (Note that custom page size uses 2 entries,
+  // one holding the minimum, one the maximum dimensions)
   driver_data->num_media = j;
+
+  // If margin info missing in the page size entries, use "HWMargins"
+  // line of the PPD file, otherwise default values
   if (def_left < 0)
-    def_left = 635;
-  if (def_right < 0)
-    def_right = 635;
-  if (def_top < 0)
-    def_top = 1270;
+    def_left = (ppd->custom_margins[0] ?
+		(int)(ppd->custom_margins[0] / 72.0 * 2540.0) : 635);
   if (def_bottom < 0)
-    def_bottom = 1270;
+    def_bottom = (ppd->custom_margins[1] ?
+		  (int)(ppd->custom_margins[1] / 72.0 * 2540.0) : 1270);
+  if (def_right < 0)
+    def_right = (ppd->custom_margins[2] ?
+		 (int)(ppd->custom_margins[2] / 72.0 * 2540.0) : 635);
+  if (def_top < 0)
+    def_top = (ppd->custom_margins[3] ?
+	       (int)(ppd->custom_margins[3] / 72.0 * 2540.0) : 1270);
+
+  // Set margin info
   driver_data->left_right = (def_left > def_right ? def_left : def_right);
   driver_data->bottom_top = (def_bottom > def_top ? def_bottom : def_right);
 
