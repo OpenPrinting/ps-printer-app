@@ -800,7 +800,21 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
     }
   }
 
-  // XXX "Collate" option
+  // Collate (will only be used with PDF or PostScript input)
+  if ((attr =
+       papplJobGetAttribute(job,
+			    "multiple-document-handling")) != NULL)
+  {
+    papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: Collate");
+    ptr = (char *)ippGetString(attr, 0, NULL);
+    if (strstr(ptr, "uncollate"))
+      choicestr = "False";
+    else if (strstr(ptr, "collate"))
+      choicestr = "True";
+    job_data->num_options = cupsAddOption("Collate", choicestr,
+					  job_data->num_options,
+					  &(job_data->options));
+  }
 
   // Mark options in the PPD file
   ppdMarkOptions(job_data->ppd, job_data->num_options, job_data->options);
