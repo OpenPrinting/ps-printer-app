@@ -844,16 +844,11 @@ static void   ps_driver_delete(
     pappl_pr_driver_data_t *driver_data)   // I - Printer's driver data
 {
   int               i;
-  pappl_system_t    *system;		   // System (for logging)
   ps_driver_extension_t *extension;
 
 
-  // Get system for logging...
-  system = papplPrinterGetSystem(printer);
-
-  papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-	   "Freeing memory from driver data of printer %s",
-	   papplPrinterGetName(printer));
+  papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
+		  "Freeing memory from driver data");
 
   extension = (ps_driver_extension_t *)driver_data->extension;
 
@@ -2153,12 +2148,10 @@ ps_identify(
     pappl_identify_actions_t actions, 	// I - Actions to take
     const char               *message)	// I - Message, if any
 {
-  pappl_system_t         *system;	// System (for logging)
   pappl_pr_driver_data_t driver_data;
   ps_driver_extension_t  *extension;
   ppd_file_t             *ppd = NULL;	// PPD file of the printer
   pappl_device_t         *device;       // PAPPL output device
-  const char             *name;         // Printer name (for logging)
 
 
   (void)actions;
@@ -2168,11 +2161,9 @@ ps_identify(
   // make the display of the printer light up and depending on
   // hardware mechanics move and/or signal sounds play
 
-  system = papplPrinterGetSystem(printer);
   papplPrinterGetDriverData(printer, &driver_data);
   extension = (ps_driver_extension_t *)driver_data.extension;
   ppd = extension->ppd;
-  name = papplPrinterGetName(printer);
 
   //
   // Open access to printer device...
@@ -2180,9 +2171,8 @@ ps_identify(
 
   if ((device = papplPrinterOpenDevice(printer)) == NULL)
   {
-    papplLog(system, PAPPL_LOGLEVEL_WARN,
-	     "Cannot access printer %s: Busy or otherwise not reachable",
-	     name);
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_WARN,
+		    "Cannot access printer: Busy or otherwise not reachable");
     return;
   }
 
@@ -2437,13 +2427,11 @@ ps_poll_device_option_defaults(
     cups_option_t **defaults)   // O - Option list of polled default settings
 {
   int                    i, j, k;       // Looping variables
-  pappl_system_t         *system;	// System
   pappl_pr_driver_data_t driver_data;
   ps_driver_extension_t  *extension;
   ppd_file_t             *ppd = NULL;	// PPD file of the printer
   int                    num_defaults;  // Number of polled default settings
   pappl_device_t         *device;       // PAPPL output device
-  const char             *name;         // Printer name (for logging)
   int		         status = 0;	// Exit status
   ppd_group_t            *group;
   ppd_option_t	         *option;	// Current option in PPD
@@ -2454,12 +2442,9 @@ ps_poll_device_option_defaults(
   ssize_t	         bytes;		// Number of bytes read
 
 
-  system = papplPrinterGetSystem(printer);
-
   papplPrinterGetDriverData(printer, &driver_data);
   extension = (ps_driver_extension_t *)driver_data.extension;
   ppd = extension->ppd;
-  name = papplPrinterGetName(printer);
 
   *defaults = NULL;
   num_defaults = 0;
@@ -2470,9 +2455,8 @@ ps_poll_device_option_defaults(
 
   if ((device = papplPrinterOpenDevice(printer)) == NULL)
   {
-    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-	     "Cannot access printer %s: Busy or otherwise not reachable",
-	     name);
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
+		    "Cannot access printer: Busy or otherwise not reachable");
     return (0);
   }
 
@@ -2524,8 +2508,8 @@ ps_poll_device_option_defaults(
   // value...
   //
 
-  papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-	   "Reading printer-internal default settings...");
+  papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
+		  "Reading printer-internal default settings...");
 
   for (i = ppd->num_groups, group = ppd->groups;
        i > 0;
@@ -2561,8 +2545,8 @@ ps_poll_device_option_defaults(
 
       if ((attr = ppdFindAttr(ppd, buf, NULL)) == NULL || !attr->value)
       {
-	papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-		 "Skipping %s option...", option->keyword);
+	papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
+			"Skipping %s option...", option->keyword);
 	continue;
       }
 
@@ -2570,8 +2554,8 @@ ps_poll_device_option_defaults(
       // Send the query code to the printer...
       //
 
-      papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-	       "Querying %s...", option->keyword);
+      papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
+		      "Querying %s...", option->keyword);
 
       for (bufptr = buf, valptr = attr->value; *valptr; valptr ++)
       {
@@ -2582,8 +2566,8 @@ ps_poll_device_option_defaults(
 	if (*valptr == '\n')
 	{
 	  *bufptr = '\0';
-	  papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-		   "%s\\n", buf);
+	  papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
+			  "%s\\n", buf);
 	  bufptr = buf;
 	}
 	else if (*valptr < ' ')
@@ -2591,8 +2575,8 @@ ps_poll_device_option_defaults(
 	  if (bufptr >= (buf + sizeof(buf) - 4))
           {
 	    *bufptr = '\0';
-	    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-		     "%s", buf);
+	    papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
+			    "%s", buf);
 	    bufptr = buf;
 	  }
 
@@ -2619,8 +2603,8 @@ ps_poll_device_option_defaults(
 	  if (bufptr >= (buf + sizeof(buf) - 1))
           {
 	    *bufptr = '\0';
-	    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-		     "%s", buf);
+	    papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
+			    "%s", buf);
 	    bufptr = buf;
 	  }
 
@@ -2631,8 +2615,8 @@ ps_poll_device_option_defaults(
       if (bufptr > buf)
       {
 	*bufptr = '\0';
-	papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-		 "%s", buf);
+	papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
+			"%s", buf);
       }
 
       papplDevicePrintf(device, "/cups_query_keyword (?%s) def\n",
@@ -2672,8 +2656,8 @@ ps_poll_device_option_defaults(
 
 	if (bytes <= 0)
         {
-	  papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-		   "Answer not ready yet, retrying in 100 ms.");
+	  papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
+			  "Answer not ready yet, retrying in 100 ms.");
 	  usleep(100000);
 	  continue;
         }
@@ -2710,8 +2694,8 @@ ps_poll_device_option_defaults(
 	  bufptr = buf;
 	}
 
-	papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-		 "Got %d bytes.", (int)bytes);
+	papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
+			"Got %d bytes.", (int)bytes);
 
 	//
 	// Skip blank lines...
@@ -2731,8 +2715,8 @@ ps_poll_device_option_defaults(
 	  // interpreter's error message that came back...
 	  //
 
-	  papplLog(system, PAPPL_LOGLEVEL_WARN,
-		   "%s", bufptr + 1);
+	  papplLogPrinter(printer, PAPPL_LOGLEVEL_WARN,
+			  "%s", bufptr + 1);
 	  status = 1;
 	  break;
 	}
@@ -2745,9 +2729,9 @@ ps_poll_device_option_defaults(
         {
 	  if (!strcasecmp(buf, "Unknown"))
 	  {
-	    papplLog(system, PAPPL_LOGLEVEL_WARN,
-		     "Unknown default setting for option \"%s\"",
-		     option->keyword);
+	    papplLogPrinter(printer, PAPPL_LOGLEVEL_WARN,
+			    "Unknown default setting for option \"%s\"",
+			    option->keyword);
 	    status = 1;
 	    break;
 	  }
@@ -2761,9 +2745,9 @@ ps_poll_device_option_defaults(
         // Write out the result and move on to the next option...
 	//
 
-	papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-		 "Read default setting for \"%s\": \"%s\"",
-		 option->keyword, buf);
+	papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
+			"Read default setting for \"%s\": \"%s\"",
+			option->keyword, buf);
 	num_defaults = cupsAddOption(option->keyword, buf, num_defaults,
 				     defaults);
 	break;
@@ -2775,9 +2759,9 @@ ps_poll_device_option_defaults(
 
       if (bytes <= 0)
       {
-	papplLog(system, PAPPL_LOGLEVEL_WARN,
-		 "No answer to query for option %s within 10 sec timeout.",
-		 option->keyword);
+	papplLogPrinter(printer, PAPPL_LOGLEVEL_WARN,
+			"No answer to query for option %s within 10 sec "
+			"timeout.", option->keyword);
 	status = 1;
       }
     }
@@ -2805,8 +2789,8 @@ ps_poll_device_option_defaults(
   //
 
   if (status)
-    papplLog(system, PAPPL_LOGLEVEL_WARN,
-	     "Unable to configure some printer options.");
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_WARN,
+		    "Unable to configure some printer options.");
 
   return (num_defaults);
 }
@@ -2827,7 +2811,6 @@ ps_printer_web_device_config(
   int          i, j, k;                 // Looping variables
   const char   *status = NULL;		// Status text, if any
   const char   *uri = NULL;             // Client URI
-  pappl_system_t *system;	        // System
   pappl_pr_driver_data_t driver_data;
   ipp_t        *driver_attrs;
   ps_driver_extension_t *extension;
@@ -2845,8 +2828,6 @@ ps_printer_web_device_config(
   bool         polled_installables = false,
                polled_defaults = false;
 
-
-  system = papplPrinterGetSystem(printer);
 
   papplPrinterGetDriverData(printer, &driver_data);
   driver_attrs = papplPrinterGetDriverAttributes(printer);
@@ -2920,8 +2901,8 @@ ps_printer_web_device_config(
 					     num_installables, &installables);
 	  }
 	}
-      papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-	       "\"Installable Options\" from web form:%s", buf);
+      papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
+		      "\"Installable Options\" from web form:%s", buf);
 
       buf[0] = '\0';
       for (i = ppd->num_groups, group = ppd->groups;
@@ -2963,8 +2944,8 @@ ps_printer_web_device_config(
       cupsFreeOptions(num_installables, installables);
 
       // Put the settings into an IPP attribute to save in the state file
-      papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-	       "\"Installable Options\" marked in PPD: %s", buf);
+      papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
+		      "\"Installable Options\" marked in PPD: %s", buf);
       ippDeleteAttribute(driver_attrs,
 			 ippFindAttribute(driver_attrs,
 					  "installable-options-default",
@@ -3021,8 +3002,8 @@ ps_printer_web_device_config(
 	cupsFreeOptions(num_installables, installables);
 
         // Put the settings into an IPP attribute to save in the state file
-	papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-		 "\"Installable Options\" marked in PPD: %s", buf);
+	papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
+			"\"Installable Options\" marked in PPD: %s", buf);
 	ippAddString(driver_attrs, IPP_TAG_PRINTER, IPP_TAG_TEXT,
 		     "installable-options-default", NULL, buf);
 
@@ -3210,7 +3191,7 @@ ps_printer_web_device_config(
 	  driver_data.media_default =
 	    driver_data.media_ready[polled_def_source];
 
-	papplLog(system, PAPPL_LOGLEVEL_DEBUG, "%s", buf);
+	papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG, "%s", buf);
 
 	// Submit the changed default values
 	papplPrinterSetDriverDefaults(printer, &driver_data,
@@ -4043,7 +4024,7 @@ ps_status(
     pappl_printer_t *printer) // I - Printer
 {
   int                    i;
-  pappl_system_t         *system;		// System (for logging)
+  pappl_system_t         *system;              // System
   pappl_pr_driver_data_t driver_data;
   ps_driver_extension_t  *extension;
   ipp_t                  *driver_attrs,
@@ -4052,12 +4033,11 @@ ps_status(
   char                   buf[1024];
 
 
-  // Get system for logging...
+  // Get system...
   system = papplPrinterGetSystem(printer);
 
-  papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-	   "Status callback called for printer %s.",
-	   papplPrinterGetName(printer));
+  papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
+		  "Status callback called.");
 
   // Load the driver data
   papplPrinterGetDriverData(printer, &driver_data);
@@ -4068,11 +4048,11 @@ ps_status(
     if ((attr = ippFindAttribute(driver_attrs, "installable-options-default",
 				 IPP_TAG_ZERO)) != NULL &&
 	ippAttributeString(attr, buf, sizeof(buf)) > 0)
-      papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-	       "Applying installable accessories settings: %s", buf);
+      papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
+		      "Applying installable accessories settings: %s", buf);
     else
-      papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-	       "Installable Options settings not found");
+      papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
+		      "Installable Options settings not found");
 
     // Update the driver data to correspond with the printer hardware
     // accessory configuration ("Installable Options" in the PPD)
@@ -4130,11 +4110,7 @@ ps_testpage(
     size_t          bufsize)		// I - Buffer Size
 {
   const char	    *str;		// String pointer
-  pappl_system_t    *system;		// System (for logging)
 
-
-  // Get system for logging...
-  system = papplPrinterGetSystem(printer);
 
   // Find the right test file...
   if ((str = getenv("TESTPAGE_DIR")) != NULL)
@@ -4147,15 +4123,15 @@ ps_testpage(
   // Does it actually exist?
   if (access(buffer, R_OK))
   {
-    papplLog(system, PAPPL_LOGLEVEL_ERROR,
-	     "Test page %s not found or not readable.", buffer);
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR,
+		    "Test page %s not found or not readable.", buffer);
     *buffer = '\0';
     return (NULL);
   }
   else
   {
-    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-    	     "Using test page: %s", buffer);
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
+		    "Using test page: %s", buffer);
     return (buffer);
   }
 }
