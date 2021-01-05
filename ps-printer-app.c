@@ -745,7 +745,11 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
   // Add vendor-specific PPD options
   //
 
-  for (i = 0; i < driver_data.num_vendor; i ++)
+  for (i = 0;
+       i < (extension->installable_options ?
+	    driver_data.num_vendor - 1 :
+	    driver_data.num_vendor);
+       i ++)
   {
     papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: %s",
 		extension->vendor_ppd_options[i]);
