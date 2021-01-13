@@ -84,32 +84,41 @@ typedef struct ps_job_data_s		// Job data
 // Name and version
 
 #define SYSTEM_NAME "PostScript Printer Application"
+#define SYSTEM_PACKAGE_NAME "ps-printer-app"
 #define SYSTEM_VERSION_STR "1.0"
 #define SYSTEM_VERSION_ARR_0 1
 #define SYSTEM_VERSION_ARR_1 0
 #define SYSTEM_VERSION_ARR_2 0
 #define SYSTEM_VERSION_ARR_3 0
 
+// System directories
+
+#define SYSTEM_STATE_DIR "/var/lib/" SYSTEM_PACKAGE_NAME
+#define SYSTEM_DATA_DIR "/usr/share/" SYSTEM_PACKAGE_NAME
+
 // State file
 
-#define STATE_FILE "/tmp/ps_printer_app.state"
+#define STATE_FILE SYSTEM_STATE_DIR "/" SYSTEM_PACKAGE_NAME ".state"
 
 // Test page
 
 #define TESTPAGE "testpage.ps"
-#define TESTPAGEDIR "/usr/share/ps-printer-app"
+#define TESTPAGEDIR SYSTEM_DATA_DIR
 
 // PPD collections used as drivers
 
 static const char * const col_paths[] =   // PPD collection dirs
 {
  "/usr/lib/cups/driver",
- "/usr/share/ppd"
+ "/usr/share/ppd",
+ SYSTEM_STATE_DIR "/ppd"
 };
 
 static  int               num_drivers = 0; // Number of drivers (from the PPDs)
 static  pappl_pr_driver_t *drivers = NULL; // Driver index (for menu and
                                            // auto-add)
+static  char              extra_ppd_dir[1024] = ""; // Directory where PPDs
+                                           // added by the user are held
 
 
 //
@@ -166,6 +175,8 @@ static bool   ps_rwriteline(pappl_job_t *job, pappl_pr_options_t *options,
 			    pappl_device_t *device, unsigned y,
 			    const unsigned char *pixels);
 static void   ps_setup(pappl_system_t *system);
+static void   ps_system_web_add_ppd(pappl_client_t *client,
+				    pappl_system_t *system);
 static bool   ps_status(pappl_printer_t *printer);
 static const char *ps_testpage(pappl_printer_t *printer, char *buffer,
 			       size_t bufsize);
@@ -3733,7 +3744,7 @@ ps_setup(pappl_system_t *system)      // I - System
   char             *generic_ppd, *mfg_mdl, *mdl, *dev_id;
   cups_array_t     *ppd_paths,
                    *ppd_collections;
-  ppd_collection_t *col;
+  ppd_collection_t *col = NULL;
   ps_ppd_path_t    *ppd_path;
   int              num_options = 0;
   cups_option_t    *options = NULL;
@@ -3746,7 +3757,7 @@ ps_setup(pappl_system_t *system)      // I - System
                    *pdf_filter_data;
 
   //
-  // Create PPD collection idex data structure
+  // Create PPD collection index data structure
   //
 
   ppd_paths = cupsArrayNew(ps_compare_ppd_paths, NULL);
@@ -3783,6 +3794,20 @@ ps_setup(pappl_system_t *system)      // I - System
       col->path = (char *)col_paths[i];
       cupsArrayAdd(ppd_collections, col);
     }
+
+  //
+  // Last entry in the list is the directory for the user to drop
+  // extra PPD files in via the web interface
+  //
+
+  if (col && !extra_ppd_dir[0])
+    strncpy(extra_ppd_dir, col->path, sizeof(extra_ppd_dir));
+
+  // XXX Check whether extra_ppd_dir exists and is writable, create if possible
+
+  //
+  // Create the list of all available PPD files
+  //
 
   ppds = ppdCollectionListPPDs(ppd_collections, 0,
 			       num_options, options,
@@ -3992,6 +4017,16 @@ ps_setup(pappl_system_t *system)      // I - System
 			       ps_driver_setup, ppd_paths);
 
   //
+  // Add web admin interface page for adding PPD files
+  //
+
+  papplSystemAddResourceCallback(system, "/addppd", "text/html",
+				 (pappl_resource_cb_t)ps_system_web_add_ppd,
+				 system);
+  papplSystemAddLink(system, "Add PPD Files", "/addppd",
+		     PAPPL_LOPTIONS_OTHER | PAPPL_LOPTIONS_HTTPS_REQUIRED);
+
+  //
   // Add filters for the different input data formats
   //
 
@@ -4012,6 +4047,436 @@ ps_setup(pappl_system_t *system)      // I - System
 			   "application/pdf",
 			   "application/vnd.printer-specific",
 			   ps_filter, pdf_filter_data);
+}
+
+
+//
+// 'ps_system_web_add_ppd()' - Web interface page for adding/deleting
+//                             PPD files by the user, to add support for
+//                             printers not supported by the built-in PPD
+//                             files
+//
+
+static void
+ps_system_web_add_ppd(
+    pappl_client_t *client,		// I - Client
+    pappl_system_t *system)		// I - System
+{
+  int          i;                       // Looping variable
+  const char   *status = NULL;		// Status text, if any
+  const char   *uri = NULL;             // Client URI
+  pappl_version_t version;
+
+
+  if (!papplClientHTMLAuthorize(client))
+    return;
+
+  // Handle POSTs to add and delete PPD files...
+  if (papplClientGetMethod(client) == HTTP_STATE_POST)
+  {
+    int			num_form = 0;	// Number of form variables
+    cups_option_t	*form = NULL;	// Form variables
+    cups_option_t	*opt;
+    const char		*action;	// Form action
+    char                strbuf[1024];
+    const char	        *content_type;	// Content-Type header
+    const char	        *boundary;	// boundary value for multi-part
+    http_t              *http;
+    bool                error = false;
+
+
+    http = papplClientGetHTTP(client);
+    content_type = httpGetField(http, HTTP_FIELD_CONTENT_TYPE);
+    if (!strcmp(content_type, "application/x-www-form-urlencoded"))
+    {
+      // URL-encoded form data, PPD file uploads not possible in this format 
+      // Use papplClientGetForm() to do the needed decoding
+      error = true;
+      if ((num_form = papplClientGetForm(client, &form)) == 0)
+      {
+	status = "Invalid form data.";
+      }
+      else if (!papplClientIsValidForm(client, num_form, form))
+      {
+	status = "Invalid form submission.";
+      }
+      else
+	error = false;
+    }
+    else if (!strncmp(content_type, "multipart/form-data; ", 21) &&
+	     (boundary = strstr(content_type, "boundary=")) != NULL)
+    {
+      // Multi-part form data, probably we have a PPD file upload
+      // Use our own reading method to allow for submitting more than
+      // one PPD file through the single input widget and for a larger
+      // total amount of data
+      char	buf[32768],		// Message buffer
+		*bufinptr,		// Pointer end of incoming data
+		*bufreadptr,		// Pointer for reading buffer
+		*bufend;		// End of message buffer
+      size_t	body_size = 0;		// Size of message body
+      ssize_t	bytes;			// Bytes read
+      http_state_t initial_state;	// Initial HTTP state
+      char	name[1024],		// Form variable name
+		filename[1024],		// Form filename
+		destpath[2048],		// File destination path
+		bstring[256],		// Boundary string to look for
+		*bend,			// End of value (boundary)
+		*line,			// Start of line
+		*ptr;			// Pointer into name/filename
+      size_t	blen;			// Length of boundary string
+      FILE      *fp = NULL;
+      ppd_file_t *ppd = NULL;		// PPD file data for verification
+
+
+      // Read one buffer full of data, then search for \r only up to a
+      // position in the buffer so that the boundary string still fits
+      // after the \r, check for line end \r\n (in header) or boundary
+      // string (after header, file/value), then save value into
+      // "form" option list or file data into destination file, move
+      // rest of buffer content (after line break/boundary) to
+      // beginning of buffer, read rest of buffer space full,
+      // continue. If no line end found, error (too long line), if no
+      // boundary found, error in case of option value, write to
+      // destination file in case of file. Move rest of buffer content
+      // to the beginning of buffer, read buffer full, continue.
+      initial_state = httpGetState(http);
+
+      // Format the boundary string we are looking for...
+      snprintf(bstring, sizeof(bstring), "\r\n--%s", boundary + 9);
+      blen = strlen(bstring);
+      papplLogClient(client, PAPPL_LOGLEVEL_DEBUG,
+		     "Boundary string: \"%s\", %ld bytes",
+		     bstring, (long)blen);
+
+      // Parse lines in the message body...
+      name[0] = '\0';
+      filename[0] = '\0';
+
+      for (bufinptr = buf, bufend = buf + sizeof(buf);
+	   (bytes = httpRead2(http, bufinptr,
+			      (size_t)(bufend - bufinptr))) > 0 ||
+	     bufinptr > buf;)
+      {
+	body_size += (size_t)bytes;
+	papplLogClient(client, PAPPL_LOGLEVEL_DEBUG,
+		       "Bytes left over: %ld; Bytes read: %ld; Total bytes read: %ld",
+		       (long)(bufinptr - buf), (long)bytes, (long)body_size);
+	bufinptr += bytes;
+	*bufinptr = '\0';
+
+	for (bufreadptr = buf; bufreadptr < bufinptr;)
+        {
+	  if (fp == NULL)
+	  {
+	    // Split out a line...
+	    for (line = bufreadptr; bufreadptr < bufinptr - 1; bufreadptr ++)
+	    {
+	      if (!memcmp(bufreadptr, "\r\n", 2))
+	      {
+		*bufreadptr = '\0';
+		bufreadptr += 2;
+		break;
+	      }
+	    }
+
+	    if (bufreadptr >= bufinptr)
+	      break;
+	  }
+
+	  if (!*line || fp)
+          {
+	    papplLogClient(client, PAPPL_LOGLEVEL_DEBUG,
+			   "Data (value or file).");
+
+	    // End of headers, grab value...
+	    if (!name[0])
+	    {
+	      // No name value...
+	      status = "Invalid form data.";
+	      papplLogClient(client, PAPPL_LOGLEVEL_ERROR,
+			     "Invalid multipart form data: Form field name missing.");
+	      error = true;
+	      break;
+	    }
+
+	    for (bend = bufinptr - blen - 2,
+		   ptr = memchr(bufreadptr, '\r', (size_t)(bend - bufreadptr));
+		 ptr;
+		 ptr = memchr(ptr + 1, '\r', (size_t)(bend - ptr - 1)))
+	    {
+	      // Check for boundary string...
+	      if (!memcmp(ptr, bstring, blen))
+		break;
+	    }
+
+	    if (!ptr && !filename[0])
+	    {
+	      // When reading a file, write out curremt data into destination
+	      // file, when not reading a file, error out
+	      // No boundary string, invalid data...
+	      status = "Invalid form data.";
+	      papplLogClient(client, PAPPL_LOGLEVEL_ERROR,
+			     "Invalid multipart form data: Form field %s: File without filename or excessively long value.",
+			     name);
+	      error = true;
+	      break;
+	    }
+
+	    // Value/file data is in buffer range from ptr to bend,
+	    // Reading continues at bufreadptr
+	    if (ptr)
+	    {
+	      bend       = ptr;
+	      ptr        = bufreadptr;
+	      bufreadptr = bend + blen;
+	    }
+	    else
+	    {
+	      ptr        = bufreadptr;
+	      bufreadptr = bend;
+	    }
+
+	    if (filename[0])
+	    {
+	      // Save data of an embedded file...
+
+	      // XXX Need error list and successful uploads list for
+	      // output in web IF
+
+	      // New file
+	      if (fp == NULL) // First data portion
+	      {
+		snprintf(destpath, sizeof(destpath), "%s/%s", extra_ppd_dir,
+			 filename);
+		papplLogClient(client, PAPPL_LOGLEVEL_DEBUG,
+			       "Creating file: %s", destpath);
+		if ((fp = fopen(destpath, "w+")) == NULL)
+		{
+		  status = "Error uploading PPD file(s).";
+		  papplLogClient(client, PAPPL_LOGLEVEL_ERROR,
+				 "Unable to create file: %s",
+				 strerror(errno));
+		  error = true;
+		  break;
+		}
+	      }
+
+	      if (fp)
+	      {
+		// Write the data
+		while (bend > ptr) // We have data to write
+		{
+		  bytes = fwrite(ptr, 1, (size_t)(bend - ptr), fp);
+		  papplLogClient(client, PAPPL_LOGLEVEL_DEBUG,
+				 "Bytes to write: %ld; %ld bytes written",
+				 (long)(bend - ptr), (long)bytes);
+		  if (errno)
+		  {
+		    status = "Error uploading PPD file(s).";
+		    papplLogClient(client, PAPPL_LOGLEVEL_ERROR,
+				   "Error writing to file %s: %s",
+				   destpath, strerror(errno));
+		    error = true;
+		    break;
+		  }
+		  ptr += bytes;
+		}
+
+		// Close the file and verify whether it is a usable PPD file
+		if (bufreadptr > bend) // We have read the boundary string
+		{
+		  fclose(fp);
+		  fp = NULL;
+		  if ((ppd = ppdOpenFile(destpath)) == NULL)
+		  {
+		    ppd_status_t err;		// Last error in file
+		    int		 linenum;	// Line number in file
+
+		    // Log error
+		    err = ppdLastError(&linenum);
+		    papplLogClient(client, PAPPL_LOGLEVEL_ERROR,
+				   "PPD %s: %s on line %d", destpath,
+				   ppdErrorString(err), linenum);
+		    // PPD broken (or not a PPD), delete it.
+		    unlink(destpath);
+		  }
+		  // XXX Check for cupsFilter(2) entries and issue warning
+		  // in error list
+		  ppdClose(ppd);
+		}
+	      }
+	    }
+	    else
+	    {
+	      // Save the form variable...
+	      *bend = '\0';
+	      num_form = cupsAddOption(name, ptr, num_form, &form);
+	      papplLogClient(client, PAPPL_LOGLEVEL_DEBUG,
+			     "Form variable: %s=%s", name, ptr);
+
+	      // If we have found the session ID (comes before the first PPD
+	      // file), verify it
+	      if (!strcasecmp(name, "session") &&
+		  !papplClientIsValidForm(client, num_form, form))
+	      {
+		status = "Invalid form submission.";
+		papplLogClient(client, PAPPL_LOGLEVEL_ERROR,
+			       "Invalid session ID: %s",
+			       ptr);
+		error = true;
+		break;
+	      }
+	    }
+
+	    if (fp == NULL)
+	    {
+	      name[0]     = '\0';
+	      filename[0] = '\0';
+
+	      if (bufreadptr < (bufinptr - 1) &&
+		  bufreadptr[0] == '\r' && bufreadptr[1] == '\n')
+		bufreadptr += 2;
+	    }
+
+	    break;
+	  }
+	  else
+	  {
+	    papplLogClient(client, PAPPL_LOGLEVEL_DEBUG, "Line '%s'.", line);
+
+	    if (!strncasecmp(line, "Content-Disposition:", 20))
+            {
+	      if ((ptr = strstr(line + 20, " name=\"")) != NULL)
+	      {
+		strncpy(name, ptr + 7, sizeof(name));
+
+		if ((ptr = strchr(name, '\"')) != NULL)
+		  *ptr = '\0';
+	      }
+
+	      if ((ptr = strstr(line + 20, " filename=\"")) != NULL)
+	      {
+		strncpy(filename, ptr + 11, sizeof(filename));
+
+		if ((ptr = strchr(filename, '\"')) != NULL)
+		  *ptr = '\0';
+	      }
+	      if (filename[0])
+		papplLogClient(client, PAPPL_LOGLEVEL_DEBUG,
+			       "Found file from form field \"%s\" with file "
+			       "name \"%s\"",
+			       name, filename);
+	      else
+		papplLogClient(client, PAPPL_LOGLEVEL_DEBUG,
+			       "Found value for field \"%s\"", name);
+	    }
+
+	    break;
+	  }
+	}
+
+	if (error)
+	  break;
+
+	if (bufinptr > bufreadptr)
+	{
+	  memmove(buf, bufreadptr, (size_t)(bufinptr - bufreadptr));
+	  bufinptr = buf + (bufinptr - bufreadptr);
+	}
+	else
+	  bufinptr = buf;
+      }
+      papplLogClient(client, PAPPL_LOGLEVEL_DEBUG,
+		     "Read %ld bytes of form data (%s).",
+		     (long)body_size, content_type);
+
+      // Flush remaining data...
+      if (httpGetState(http) == initial_state)
+	httpFlush(http);
+    }
+
+    strbuf[0] = '\0';
+    for (i = num_form, opt = form; i > 0; i --, opt ++)
+      snprintf(strbuf + strlen(strbuf), sizeof(strbuf) - strlen(strbuf) - 1,
+	       "%s=%s ", opt->name, opt->value);
+    if (strbuf[0])
+      strbuf[strlen(strbuf) - 1] = '\0';
+
+    papplLogClient(client, PAPPL_LOGLEVEL_DEBUG,
+		   "Form variables: %s", strbuf);
+
+    if (!error)
+    {
+      if ((action = cupsGetOption("action", num_form, form)) == NULL)
+	status = "Missing action.";
+      else if (!strcmp(action, "add-ppdfiles"))
+      {
+	// XXX Refresh driver list
+	status = "PPD file(s) uploaded.";
+      }
+      else
+	status = "Unknown action.";
+    }
+
+    cupsFreeOptions(num_form, form);
+  }
+
+  if (!papplClientRespond(client, HTTP_STATUS_OK, NULL, "text/html", 0, 0))
+    return;
+  papplClientHTMLHeader(client, "Add support for extra printers", 0);
+  if (papplSystemGetVersions(system, 1, &version) > 0)
+    papplClientHTMLPrintf(client,
+                          "    <div class=\"header2\">\n"
+                          "      <div class=\"row\">\n"
+                          "        <div class=\"col-12 nav\">\n"
+                          "          Version %s\n"
+                          "        </div>\n"
+                          "      </div>\n"
+                          "    </div>\n", version.sversion);
+  papplClientHTMLPuts(client, "    <div class=\"content\">\n");
+
+  papplClientHTMLPrintf(client,
+			"      <div class=\"row\">\n"
+			"        <div class=\"col-12\">\n"
+			"          <h1 class=\"title\">Add support for extra printer models</h1>\n");
+
+  if (status)
+    papplClientHTMLPrintf(client, "          <div class=\"banner\">%s</div>\n", status);
+
+  papplClientHTMLPuts(client,
+                      "        </div>\n"
+                      "      </div>\n"
+                      "      <div class=\"row\">\n");
+  uri = papplClientGetURI(client);
+
+  // Multi-part, as we want to upload a PPD file here
+  papplClientHTMLStartForm(client, uri, true);
+  papplClientHTMLPuts(client,
+                      "        <div class=\"col-12\">\n"
+		      "        <h3>Add the PPD file(s) of your printer(s)</h3>\n");
+  papplClientHTMLPuts(client,
+		      "        <p>If your printer is not already supported by this Printer Application, you can add support for it by uploading your printer's PPD file here. Only add PPD files for PostScript printers, PPD files of CUPS drivers do not work with this Printer Application!</p>\n");
+
+
+  papplClientHTMLPuts(client,
+		      "          <table class=\"form\">\n"
+		      "            <tbody>\n");
+
+  papplClientHTMLPuts(client,
+		      "              <tr><th><label for=\"ppdfiles\">PPD file(s):</label></th><td><input type=\"file\" name=\"ppdfiles\" accept=\".ppd,.PPD,.ppd.gz,.PPD.gz\" required multiple></td><td>(Only individual PPD files, no PPD-generating executables)</td></tr>\n");
+  papplClientHTMLPuts(client,
+		      "              <tr><th></th><td><button type=\"submit\" name=\"action\" value=\"add-ppdfiles\">Add PPDs</button></td><td></td></tr>\n");
+  papplClientHTMLPuts(client,
+		      "            </tbody>\n"
+		      "          </table>\n"
+		      "          </div>\n"
+		      "        </form>\n");
+
+  papplClientHTMLPuts(client,
+                      "      </div>\n"
+                      "    </div>\n");
+  papplClientHTMLFooter(client);
 }
 
 
