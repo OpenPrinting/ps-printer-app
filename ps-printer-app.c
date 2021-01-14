@@ -117,8 +117,13 @@ static const char * const col_paths[] =   // PPD collection dirs
 static  int               num_drivers = 0; // Number of drivers (from the PPDs)
 static  pappl_pr_driver_t *drivers = NULL; // Driver index (for menu and
                                            // auto-add)
+cups_array_t              *ppd_paths = NULL, // List of the paths to each PPD
+                          *ppd_collections;// List of all directories providing
+                                           // PPD files
 static  char              extra_ppd_dir[1024] = ""; // Directory where PPDs
                                            // added by the user are held
+static  char              ppd_dirs_env[1024]; // Environment variable PPD_DIRS
+                                           // with the PPD directories
 
 
 //
@@ -3732,19 +3737,15 @@ ps_rwriteline(
 
 
 //
-// 'ps_setup()' - Setup PostScript driver.
+// 'ps_setup_driver_list()' - Create a driver list of the available PPD files.
 //
 
 static void
-ps_setup(pappl_system_t *system)      // I - System
+ps_setup_driver_list(pappl_system_t *system)      // I - System
 {
   int              i, j, k;
-  const char       *col_paths_env;
   char             *ptr1, *ptr2;
   char             *generic_ppd, *mfg_mdl, *mdl, *dev_id;
-  cups_array_t     *ppd_paths,
-                   *ppd_collections;
-  ppd_collection_t *col = NULL;
   ps_ppd_path_t    *ppd_path;
   int              num_options = 0;
   cups_option_t    *options = NULL;
@@ -3753,57 +3754,7 @@ ps_setup(pappl_system_t *system)      // I - System
   char             buf1[1024], buf2[1024];
   int              pre_normalized;
   pappl_pr_driver_t swap;
-  ps_filter_data_t *ps_filter_data,
-                   *pdf_filter_data;
 
-  //
-  // Create PPD collection index data structure
-  //
-
-  ppd_paths = cupsArrayNew(ps_compare_ppd_paths, NULL);
-  ppd_collections = cupsArrayNew(NULL, NULL);
-
-  //
-  // Build PPD list from all repositories
-  //
-
-  if ((col_paths_env = getenv("PPD_PATHS")) != NULL)
-  {
-    strncpy(buf1, col_paths_env, sizeof(buf1));
-    ptr1 = buf1;
-    while (ptr1 && *ptr1)
-    {
-      ptr2 = strchr(ptr1, ':');
-      if (ptr2)
-	*ptr2 = '\0';
-      col = (ppd_collection_t *)calloc(1, sizeof(ppd_collection_t));
-      col->name = NULL;
-      col->path = ptr1;
-      cupsArrayAdd(ppd_collections, col);
-      if (ptr2)
-	ptr1 = ptr2 + 1;
-      else
-	ptr1 = NULL;
-    }
-  }
-  else
-    for (i = 0; i < sizeof(col_paths)/sizeof(col_paths[0]); i ++)
-    {
-      col = (ppd_collection_t *)calloc(1, sizeof(ppd_collection_t));
-      col->name = NULL;
-      col->path = (char *)col_paths[i];
-      cupsArrayAdd(ppd_collections, col);
-    }
-
-  //
-  // Last entry in the list is the directory for the user to drop
-  // extra PPD files in via the web interface
-  //
-
-  if (col && !extra_ppd_dir[0])
-    strncpy(extra_ppd_dir, col->path, sizeof(extra_ppd_dir));
-
-  // XXX Check whether extra_ppd_dir exists and is writable, create if possible
 
   //
   // Create the list of all available PPD files
@@ -3812,7 +3763,6 @@ ps_setup(pappl_system_t *system)      // I - System
   ppds = ppdCollectionListPPDs(ppd_collections, 0,
 			       num_options, options,
 			       (filter_logfunc_t)papplLog, system);
-  cupsArrayDelete(ppd_collections);
 
   //
   // Create driver list from the PPD list and submit it
@@ -3847,8 +3797,14 @@ ps_setup(pappl_system_t *system)      // I - System
 	       "Printer Application will only support printers "
 	       "explicitly supported by the PPD files");
     // Create driver indices
+    if (drivers)
+      free(drivers);
     drivers = (pappl_pr_driver_t *)calloc(num_drivers + PPD_MAX_PROD,
 					  sizeof(pappl_pr_driver_t));
+    // Create list of PPD file paths
+    if (ppd_paths)
+      cupsArrayDelete(ppd_paths);
+    ppd_paths = cupsArrayNew(ps_compare_ppd_paths, NULL);
     if (generic_ppd)
     {
       drivers[i].name = strdup("generic");
@@ -4015,6 +3971,76 @@ ps_setup(pappl_system_t *system)      // I - System
   papplSystemSetPrinterDrivers(system, num_drivers, drivers,
 			       ps_autoadd, ps_printer_extra_setup,
 			       ps_driver_setup, ppd_paths);
+}
+
+
+//
+// 'ps_setup()' - Setup PostScript driver.
+//
+
+static void
+ps_setup(pappl_system_t *system)      // I - System
+{
+  int              i;
+  char             *ptr1, *ptr2;
+  ppd_collection_t *col = NULL;
+  ps_filter_data_t *ps_filter_data,
+                   *pdf_filter_data;
+
+  //
+  // Create PPD collection index data structure
+  //
+
+  ppd_paths = cupsArrayNew(ps_compare_ppd_paths, NULL);
+  ppd_collections = cupsArrayNew(NULL, NULL);
+
+  //
+  // Build PPD list from all repositories
+  //
+
+  if ((ptr1 = getenv("PPD_PATHS")) != NULL)
+  {
+    strncpy(ppd_dirs_env, ptr1, sizeof(ppd_dirs_env));
+    ptr1 = ppd_dirs_env;
+    while (ptr1 && *ptr1)
+    {
+      ptr2 = strchr(ptr1, ':');
+      if (ptr2)
+	*ptr2 = '\0';
+      col = (ppd_collection_t *)calloc(1, sizeof(ppd_collection_t));
+      col->name = NULL;
+      col->path = ptr1;
+      cupsArrayAdd(ppd_collections, col);
+      if (ptr2)
+	ptr1 = ptr2 + 1;
+      else
+	ptr1 = NULL;
+    }
+  }
+  else
+    for (i = 0; i < sizeof(col_paths)/sizeof(col_paths[0]); i ++)
+    {
+      col = (ppd_collection_t *)calloc(1, sizeof(ppd_collection_t));
+      col->name = NULL;
+      col->path = (char *)col_paths[i];
+      cupsArrayAdd(ppd_collections, col);
+    }
+
+  //
+  // Last entry in the list is the directory for the user to drop
+  // extra PPD files in via the web interface
+  //
+
+  if (col && !extra_ppd_dir[0])
+    strncpy(extra_ppd_dir, col->path, sizeof(extra_ppd_dir));
+
+  // XXX Check whether extra_ppd_dir exists and is writable, create if possible
+
+  //
+  // Create the list of all available PPD files
+  //
+
+  ps_setup_driver_list(system);
 
   //
   // Add web admin interface page for adding PPD files
@@ -4083,6 +4109,7 @@ ps_system_web_add_ppd(
     const char	        *boundary;	// boundary value for multi-part
     http_t              *http;
     bool                error = false;
+    bool                ppd_repo_changed = false; // PPD(s) added or removed?
 
 
     http = papplClientGetHTTP(client);
@@ -4277,6 +4304,10 @@ ps_system_web_add_ppd(
 		    papplLogClient(client, PAPPL_LOGLEVEL_ERROR,
 				   "Error writing to file %s: %s",
 				   destpath, strerror(errno));
+		    // PPD incomplete, close and delete it.
+		    fclose(fp);
+		    fp = NULL;
+		    unlink(destpath);
 		    error = true;
 		    break;
 		  }
@@ -4288,6 +4319,8 @@ ps_system_web_add_ppd(
 		{
 		  fclose(fp);
 		  fp = NULL;
+		  // Default is PPD_CONFORM_RELAXED, needs testing XXX
+		  ppdSetConformance(PPD_CONFORM_STRICT);
 		  if ((ppd = ppdOpenFile(destpath)) == NULL)
 		  {
 		    ppd_status_t err;		// Last error in file
@@ -4304,6 +4337,9 @@ ps_system_web_add_ppd(
 		  // XXX Check for cupsFilter(2) entries and issue warning
 		  // in error list
 		  ppdClose(ppd);
+		  ppdSetConformance(PPD_CONFORM_RELAXED);
+		  // New PPD added, so driver list needs update
+		  ppd_repo_changed = true;
 		}
 	      }
 	    }
@@ -4406,18 +4442,20 @@ ps_system_web_add_ppd(
     papplLogClient(client, PAPPL_LOGLEVEL_DEBUG,
 		   "Form variables: %s", strbuf);
 
+    // Check non-file form input values
     if (!error)
     {
       if ((action = cupsGetOption("action", num_form, form)) == NULL)
 	status = "Missing action.";
       else if (!strcmp(action, "add-ppdfiles"))
-      {
-	// XXX Refresh driver list
 	status = "PPD file(s) uploaded.";
-      }
       else
 	status = "Unknown action.";
     }
+
+    // Refresh driver list (if at least 1 PPD got added or removed)
+    if (ppd_repo_changed)
+      ps_setup_driver_list(system);
 
     cupsFreeOptions(num_form, form);
   }
