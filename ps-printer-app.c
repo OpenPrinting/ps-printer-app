@@ -3877,8 +3877,11 @@ ps_setup_driver_list(pappl_system_t *system)      // I - System
 	  ppd_path = (ps_ppd_path_t *)calloc(1, sizeof(ps_ppd_path_t));
 	  // Base make/model/language string to generate the needed index
 	  // strings
-	  snprintf(buf1, sizeof(buf1) - 1, "%s (%s)",
-		   mfg_mdl, ppd->record.languages[0]);
+	  snprintf(buf1, sizeof(buf1) - 1, "%s%s (%s)",
+		   mfg_mdl,
+		   (!strncmp(ppd->record.name, extra_ppd_dir,
+			     strlen(extra_ppd_dir)) ? " - USER-ADDED" : ""),
+		   ppd->record.languages[0]);
 	  // IPP-compatible string as driver name
 	  drivers[i].name =
 	    strdup(ieee1284NormalizeMakeAndModel(buf1, ppd->record.make,
