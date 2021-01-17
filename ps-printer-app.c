@@ -334,6 +334,8 @@ ps_autoadd(const char *device_info,	// I - Device name (unused)
                 *mfg, *dmfg, *mdl, *dmdl, // Device ID fields
 		*ps;			// PostScript command set pointer
   char          buf[1024];
+  int           score, best_score = 0,
+                best = -1;
 
 
   (void)device_info;
@@ -382,14 +384,22 @@ ps_autoadd(const char *device_info,	// I - Device name (unused)
 
   if (mfg && mdl)
   {
+    // Normalize device ID to format of driver name and match
+    ieee1284NormalizeMakeAndModel(device_id, NULL,
+				  IEEE1284_NORMALIZE_IPP,
+				  buf, sizeof(buf),
+				  NULL, NULL);
+
     // Match make and model with device ID of driver list entry
     for (i = 1; i < num_drivers; i ++)
     {
-      if (drivers[i].device_id[0])
+      score = 0;
+
+      // Match make and model with device ID of driver list entry
+      if (drivers[i].device_id[0] &&
+	  (num_ddid = papplDeviceParseID(drivers[i].device_id, &ddid)) > 0 &&
+	  ddid != NULL)
       {
-	num_ddid = papplDeviceParseID(drivers[i].device_id, &ddid);
-	if (num_ddid == 0 || ddid == NULL)
-	  continue;
 	if ((dmfg = cupsGetOption("MANUFACTURER", num_ddid, ddid)) == NULL)
 	  dmfg = cupsGetOption("MFG", num_ddid, ddid);
 	if ((dmdl = cupsGetOption("MODEL", num_ddid, ddid)) == NULL)
@@ -398,35 +408,56 @@ ps_autoadd(const char *device_info,	// I - Device name (unused)
 	    strcasecmp(mfg, dmfg) == 0 &&
 	    strcasecmp(mdl, dmdl) == 0)
 	  // Match
-	  ret = drivers[i].name;
+	  score += 2;
 	cupsFreeOptions(num_ddid, ddid);
-	if (ret)
-	  goto done;
       }
-    }
 
-    // Normalize device ID to format of driver name and match
-    ieee1284NormalizeMakeAndModel(device_id, NULL,
-				  IEEE1284_NORMALIZE_IPP,
-				  buf, sizeof(buf),
-				  NULL, NULL);
-    for (i = 1; i < num_drivers; i ++)
-    {
-      if (strncmp(buf, drivers[i].name, strlen(buf)) == 0)
-      {
+      // Match normalized device ID with driver name
+      if (score == 0 && strncmp(buf, drivers[i].name, strlen(buf)) == 0)
 	// Match
-	ret = drivers[i].name;
-	goto done;
+	score += 1;
+
+      // PPD must at least match make and model to get considered
+      if (score == 0)
+	continue;
+
+      // User-added? Prioritize, as if the user adds something, he wants
+      // to use it
+      if (strstr(drivers[i].name, "-user-added"))
+	score += 32;
+
+      // PPD matches user's/system's language?
+      // To be added when PAPPL supports internationalization XXX
+      // score + 8 for 2-char language
+      // score + 16 for 5-char language/country
+
+      // PPD is English language version?
+      if (!strcmp(drivers[i].name + strlen(drivers[i].name) - 4, "--en") ||
+	  !strncmp(drivers[i].name + strlen(drivers[i].name) - 7, "--en-", 5))
+	score += 4;
+
+      // Better match than the previous one?
+      if (score > best_score)
+      {
+	best_score = score;
+	best = i;
       }
     }
   }
 
-  // PostScript printer but none of the PPDs matches? Assign the generic PPD
+  // Found at least one match? Take the best one
+  if (best >= 0)
+    ret = drivers[best].name;
+  // PostScript printer but none of the PPDs match? Assign the generic PPD
   // if we have one
-  if (strcasecmp(drivers[0].name, "generic"))
+  else if (strcasecmp(drivers[0].name, "generic"))
     ret = "generic";
+  else
+    ret = NULL;
 
  done:
+
+  // Clean up
   cupsFreeOptions(num_did, did);
 
   return (ret);
