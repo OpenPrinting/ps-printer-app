@@ -4152,17 +4152,11 @@ ps_system_web_add_ppd(
     {
       // URL-encoded form data, PPD file uploads not possible in this format 
       // Use papplClientGetForm() to do the needed decoding
-      error = true;
       if ((num_form = papplClientGetForm(client, &form)) == 0)
       {
 	status = "Invalid form data.";
+	error = true;
       }
-      else if (!papplClientIsValidForm(client, num_form, form))
-      {
-	status = "Invalid form submission.";
-      }
-      else
-	error = false;
     }
     else if (!strncmp(content_type, "multipart/form-data; ", 21) &&
 	     (boundary = strstr(content_type, "boundary=")) != NULL)
@@ -4479,12 +4473,23 @@ ps_system_web_add_ppd(
     // Check non-file form input values
     if (!error)
     {
-      if ((action = cupsGetOption("action", num_form, form)) == NULL)
+      if (!papplClientIsValidForm(client, num_form, form))
+      {
+	status = "Invalid form submission.";
+	error = true;
+      }
+      else if ((action = cupsGetOption("action", num_form, form)) == NULL)
+      {
 	status = "Missing action.";
+	error = true;
+      }
       else if (!strcmp(action, "add-ppdfiles"))
 	status = "PPD file(s) uploaded.";
       else
+      {
 	status = "Unknown action.";
+	error = true;
+      }
     }
 
     // Refresh driver list (if at least 1 PPD got added or removed)
