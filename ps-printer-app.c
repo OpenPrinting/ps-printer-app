@@ -4122,14 +4122,26 @@ ps_system_web_add_ppd(
     pappl_client_t *client,		// I - Client
     pappl_system_t *system)		// I - System
 {
-  int          i;                       // Looping variable
-  const char   *status = NULL;		// Status text, if any
-  const char   *uri = NULL;             // Client URI
-  pappl_version_t version;
+  int                 i;                // Looping variable
+  const char          *status = NULL;	// Status text, if any
+  const char          *uri = NULL;      // Client URI
+  pappl_version_t     version;
+  cups_array_t        *uploaded,        // List of uploaded PPDs, to delete
+                                        // them in certain error conditions
+                      *accepted_report, // Report of accepted PPDs with warnings
+                      *rejected_report; // Report of rejected PPDs with errors
 
 
   if (!papplClientHTMLAuthorize(client))
     return;
+
+  // Create arrays to log PPD file upload
+  uploaded = cupsArrayNew3(NULL, NULL, NULL, 0, NULL,
+			   (cups_afree_func_t)free);
+  accepted_report = cupsArrayNew3(NULL, NULL, NULL, 0, NULL,
+				  (cups_afree_func_t)free);
+  rejected_report = cupsArrayNew3(NULL, NULL, NULL, 0, NULL,
+				  (cups_afree_func_t)free);
 
   // Handle POSTs to add and delete PPD files...
   if (papplClientGetMethod(client) == HTTP_STATE_POST)
@@ -4138,12 +4150,13 @@ ps_system_web_add_ppd(
     cups_option_t	*form = NULL;	// Form variables
     cups_option_t	*opt;
     const char		*action;	// Form action
-    char                strbuf[1024];
+    char                strbuf[2048];
     const char	        *content_type;	// Content-Type header
     const char	        *boundary;	// boundary value for multi-part
     http_t              *http;
     bool                error = false;
     bool                ppd_repo_changed = false; // PPD(s) added or removed?
+    char		*ptr;		// Pointer into string
 
 
     http = papplClientGetHTTP(client);
@@ -4183,8 +4196,7 @@ ps_system_web_add_ppd(
 		destpath[2048],		// File destination path
 		bstring[256],		// Boundary string to look for
 		*bend,			// End of value (boundary)
-		*line,			// Start of line
-		*ptr;			// Pointer into name/filename
+		*line;			// Start of line
       size_t	blen;			// Length of boundary string
       FILE      *fp = NULL;
       ppd_file_t *ppd = NULL;		// PPD file data for verification
@@ -4254,9 +4266,10 @@ ps_system_web_add_ppd(
 	    if (!name[0])
 	    {
 	      // No name value...
-	      status = "Invalid form data.";
 	      papplLogClient(client, PAPPL_LOGLEVEL_ERROR,
 			     "Invalid multipart form data: Form field name missing.");
+	      // Stop here
+	      status = "Invalid form data.";
 	      error = true;
 	      break;
 	    }
@@ -4276,10 +4289,11 @@ ps_system_web_add_ppd(
 	      // When reading a file, write out curremt data into destination
 	      // file, when not reading a file, error out
 	      // No boundary string, invalid data...
-	      status = "Invalid form data.";
 	      papplLogClient(client, PAPPL_LOGLEVEL_ERROR,
 			     "Invalid multipart form data: Form field %s: File without filename or excessively long value.",
 			     name);
+	      // Stop here
+	      status = "Invalid form data.";
 	      error = true;
 	      break;
 	    }
@@ -4302,9 +4316,6 @@ ps_system_web_add_ppd(
 	    {
 	      // Save data of an embedded file...
 
-	      // XXX Need error list and successful uploads list for
-	      // output in web IF
-
 	      // New file
 	      if (fp == NULL) // First data portion
 	      {
@@ -4314,10 +4325,16 @@ ps_system_web_add_ppd(
 			       "Creating file: %s", destpath);
 		if ((fp = fopen(destpath, "w+")) == NULL)
 		{
-		  status = "Error uploading PPD file(s).";
 		  papplLogClient(client, PAPPL_LOGLEVEL_ERROR,
 				 "Unable to create file: %s",
 				 strerror(errno));
+		  // Report error
+		  snprintf(strbuf, sizeof(strbuf),
+			   "%s: Cannot create file - %s",
+			   filename, strerror(errno));
+		  cupsArrayAdd(rejected_report, strdup(strbuf));
+		  // Stop here
+		  status = "Error uploading PPD file(s), uploading stopped.";
 		  error = true;
 		  break;
 		}
@@ -4334,14 +4351,20 @@ ps_system_web_add_ppd(
 				 (long)(bend - ptr), (long)bytes);
 		  if (errno)
 		  {
-		    status = "Error uploading PPD file(s).";
 		    papplLogClient(client, PAPPL_LOGLEVEL_ERROR,
-				   "Error writing to file %s: %s",
+				   "Error writing into file %s: %s",
 				   destpath, strerror(errno));
+		    // Report error
+		    snprintf(strbuf, sizeof(strbuf),
+			     "%s: Cannot write file - %s",
+			     filename, strerror(errno));
+		    cupsArrayAdd(rejected_report, strdup(strbuf));
 		    // PPD incomplete, close and delete it.
 		    fclose(fp);
 		    fp = NULL;
 		    unlink(destpath);
+		    // Stop here
+		    status = "Error uploading PPD file(s), uploading stopped.";
 		    error = true;
 		    break;
 		  }
@@ -4367,13 +4390,25 @@ ps_system_web_add_ppd(
 				   ppdErrorString(err), linenum);
 		    // PPD broken (or not a PPD), delete it.
 		    unlink(destpath);
+		    // Report error
+		    snprintf(strbuf, sizeof(strbuf),
+			     "%s: Not a PPD or file corrupted", filename);
+		    cupsArrayAdd(rejected_report, strdup(strbuf));
 		  }
-		  // XXX Check for cupsFilter(2) entries and issue warning
-		  // in error list
-		  ppdClose(ppd);
+		  else
+		  {
+		    // XXX Check for cupsFilter(2) entries and issue warning
+		    // in error list
+		    // Log result
+		    snprintf(strbuf, sizeof(strbuf), "%s: OK", filename);
+		    cupsArrayAdd(accepted_report, strdup(strbuf));
+		    ppdClose(ppd);
+		    // New PPD added, so driver list needs update
+		    ppd_repo_changed = true;
+		    // Log the addtion of the PPD file
+		    cupsArrayAdd(uploaded, strdup(destpath));
+		  }
 		  ppdSetConformance(PPD_CONFORM_RELAXED);
-		  // New PPD added, so driver list needs update
-		  ppd_repo_changed = true;
 		}
 	      }
 	    }
@@ -4390,10 +4425,11 @@ ps_system_web_add_ppd(
 	      if (!strcasecmp(name, "session") &&
 		  !papplClientIsValidForm(client, num_form, form))
 	      {
-		status = "Invalid form submission.";
 		papplLogClient(client, PAPPL_LOGLEVEL_ERROR,
 			       "Invalid session ID: %s",
 			       ptr);
+		// Stop here
+		status = "Invalid form submission.";
 		error = true;
 		break;
 	      }
@@ -4480,11 +4516,30 @@ ps_system_web_add_ppd(
     if (!error)
     {
       if ((action = cupsGetOption("action", num_form, form)) == NULL)
+      {
 	status = "Missing action.";
+	error = true;
+      }
       else if (!strcmp(action, "add-ppdfiles"))
 	status = "PPD file(s) uploaded.";
       else
+      {
 	status = "Unknown action.";
+	error = true;
+      }
+      if (error)
+      {
+	// Remove already uploaded PPD files
+	while (ptr = cupsArrayFirst(uploaded))
+	{
+	  unlink(ptr);
+	  cupsArrayRemove(uploaded, ptr);
+	}
+	while (cupsArrayRemove(accepted_report,
+			       cupsArrayFirst(accepted_report)));
+	while (cupsArrayRemove(rejected_report,
+			       cupsArrayFirst(rejected_report)));
+      }
     }
 
     // Refresh driver list (if at least 1 PPD got added or removed)
@@ -4495,7 +4550,7 @@ ps_system_web_add_ppd(
   }
 
   if (!papplClientRespond(client, HTTP_STATUS_OK, NULL, "text/html", 0, 0))
-    return;
+    goto clean_up;
   papplClientHTMLHeader(client, "Add support for extra printers", 0);
   if (papplSystemGetVersions(system, 1, &version) > 0)
     papplClientHTMLPrintf(client,
@@ -4535,6 +4590,26 @@ ps_system_web_add_ppd(
 		      "          <table class=\"form\">\n"
 		      "            <tbody>\n");
 
+  if (cupsArrayCount(rejected_report))
+  {
+    for (i = 0; i < cupsArrayCount(rejected_report); i ++)
+      papplClientHTMLPrintf(client,
+			    "              <tr><th>%s</th><td>%s</td></tr>\n",
+			    (i == 0 ? "Upload failed:" : ""),
+			    (char *)cupsArrayIndex(rejected_report, i));
+    papplClientHTMLPuts(client,
+			"              <tr><th></th><td></td></tr>\n");
+  }
+  if (cupsArrayCount(accepted_report))
+  {
+    for (i = 0; i < cupsArrayCount(accepted_report); i ++)
+      papplClientHTMLPrintf(client,
+			    "              <tr><th>%s</th><td>%s</td></tr>\n",
+			    (i == 0 ? "Uploaded:" : ""),
+			    (char *)cupsArrayIndex(accepted_report, i));
+    papplClientHTMLPuts(client,
+			"              <tr><th></th><td></td></tr>\n");
+  }
   papplClientHTMLPuts(client,
 		      "              <tr><th><label for=\"ppdfiles\">PPD file(s):</label></th><td><input type=\"file\" name=\"ppdfiles\" accept=\".ppd,.PPD,.ppd.gz,.PPD.gz\" required multiple></td><td>(Only individual PPD files, no PPD-generating executables)</td></tr>\n");
   papplClientHTMLPuts(client,
@@ -4549,6 +4624,12 @@ ps_system_web_add_ppd(
                       "      </div>\n"
                       "    </div>\n");
   papplClientHTMLFooter(client);
+
+ clean_up:
+  // Clean up
+  cupsArrayDelete(uploaded);
+  cupsArrayDelete(accepted_report);
+  cupsArrayDelete(rejected_report);
 }
 
 
