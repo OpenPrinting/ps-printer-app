@@ -4397,11 +4397,23 @@ ps_system_web_add_ppd(
 		  }
 		  else
 		  {
-		    // XXX Check for cupsFilter(2) entries and issue warning
-		    // in error list
-		    // Log result
-		    snprintf(strbuf, sizeof(strbuf), "%s: OK", filename);
-		    cupsArrayAdd(accepted_report, strdup(strbuf));
+		    // Check for cupsFilter(2) entries and issue warning
+		    if (ppd->num_filters)
+		    {
+		      // We have at least one "*cupsFilter(2):..." line
+		      // in the PPD file
+		      // Log success with warning
+		      snprintf(strbuf, sizeof(strbuf),
+			       "%s: WARNING: CUPS driver PPD, possibly non-PostScript",
+			       filename);
+		      cupsArrayAdd(accepted_report, strdup(strbuf));
+		    }
+		    else
+		    {
+		      // Log success without warning
+		      snprintf(strbuf, sizeof(strbuf), "%s: OK", filename);
+		      cupsArrayAdd(accepted_report, strdup(strbuf));
+		    }
 		    ppdClose(ppd);
 		    // New PPD added, so driver list needs update
 		    ppd_repo_changed = true;
@@ -4606,8 +4618,9 @@ ps_system_web_add_ppd(
   {
     for (i = 0; i < cupsArrayCount(rejected_report); i ++)
       papplClientHTMLPrintf(client,
-			    "              <tr><th>%s</th><td>%s</td></tr>\n",
-			    (i == 0 ? "Upload failed:" : ""),
+			    (i == 0 ?
+			     "              <tr><th>Upload&nbsp;failed:</th><td>%s</td></tr>\n" :
+			     "              <tr><th></th><td>%s</td></tr>\n"),
 			    (char *)cupsArrayIndex(rejected_report, i));
     papplClientHTMLPuts(client,
 			"              <tr><th></th><td></td></tr>\n");
@@ -4616,14 +4629,15 @@ ps_system_web_add_ppd(
   {
     for (i = 0; i < cupsArrayCount(accepted_report); i ++)
       papplClientHTMLPrintf(client,
-			    "              <tr><th>%s</th><td>%s</td></tr>\n",
-			    (i == 0 ? "Uploaded:" : ""),
+			    (i == 0 ?
+			     "              <tr><th>Uploaded:</th><td>%s</td></tr>\n" :
+			     "              <tr><th></th><td>%s</td></tr>\n"),
 			    (char *)cupsArrayIndex(accepted_report, i));
     papplClientHTMLPuts(client,
 			"              <tr><th></th><td></td></tr>\n");
   }
   papplClientHTMLPuts(client,
-		      "              <tr><th><label for=\"ppdfiles\">PPD file(s):</label></th><td><input type=\"file\" name=\"ppdfiles\" accept=\".ppd,.PPD,.ppd.gz,.PPD.gz\" required multiple></td><td>(Only individual PPD files, no PPD-generating executables)</td></tr>\n");
+		      "              <tr><th><label for=\"ppdfiles\">PPD&nbsp;file(s):</label></th><td><input type=\"file\" name=\"ppdfiles\" accept=\".ppd,.PPD,.ppd.gz,.PPD.gz\" required multiple></td><td>(Only individual PPD files, no PPD-generating executables)</td></tr>\n");
   papplClientHTMLPuts(client,
 		      "              <tr><th></th><td><button type=\"submit\" name=\"action\" value=\"add-ppdfiles\">Add PPDs</button></td><td></td></tr>\n");
   papplClientHTMLPuts(client,
