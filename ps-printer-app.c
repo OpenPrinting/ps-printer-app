@@ -4428,6 +4428,17 @@ ps_system_web_add_ppd(
 		papplLogClient(client, PAPPL_LOGLEVEL_ERROR,
 			       "Invalid session ID: %s",
 			       ptr);
+		// Remove already uploaded PPD files ...
+		while (ptr = cupsArrayFirst(uploaded))
+		{
+		  unlink(ptr);
+		  cupsArrayRemove(uploaded, ptr);
+		}
+		// ... and the reports about them
+		while (cupsArrayRemove(accepted_report,
+				       cupsArrayFirst(accepted_report)));
+		while (cupsArrayRemove(rejected_report,
+				       cupsArrayFirst(rejected_report)));
 		// Stop here
 		status = "Invalid form submission.";
 		error = true;
@@ -4529,12 +4540,13 @@ ps_system_web_add_ppd(
       }
       if (error)
       {
-	// Remove already uploaded PPD files
+	// Remove already uploaded PPD files ...
 	while (ptr = cupsArrayFirst(uploaded))
 	{
 	  unlink(ptr);
 	  cupsArrayRemove(uploaded, ptr);
 	}
+	// ... and the reports about them
 	while (cupsArrayRemove(accepted_report,
 			       cupsArrayFirst(accepted_report)));
 	while (cupsArrayRemove(rejected_report,
