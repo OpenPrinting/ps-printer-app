@@ -4069,8 +4069,6 @@ ps_setup(pappl_system_t *system)      // I - System
   if (col && !extra_ppd_dir[0])
     strncpy(extra_ppd_dir, col->path, sizeof(extra_ppd_dir));
 
-  // XXX Check whether extra_ppd_dir exists and is writable, create if possible
-
   //
   // Create the list of all available PPD files
   //
