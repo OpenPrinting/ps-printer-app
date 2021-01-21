@@ -4567,6 +4567,11 @@ ps_system_web_add_ppd(
 	else
 	  status = "No PPD file selected for deletion.";
       }
+      else if (!strcmp(action, "refresh-ppdfiles"))
+      {
+	ppd_repo_changed = true;
+	status = "Driver list refreshed.";
+      }
       else
       {
 	status = "Unknown action.";
@@ -4710,6 +4715,27 @@ ps_system_web_add_ppd(
 
     cupsArrayDelete(user_ppd_files);
   }
+
+  papplClientHTMLPrintf(client, "          <hr>\n");
+
+  papplClientHTMLPuts(client,
+		      "          <h3>Refresh driver list</h3>\n");
+
+  papplClientHTMLPrintf(client,
+			"          <p>If you have manually loaded PPD files into the user PPD file directory (%s) or deleted PPD files from there, please click the \"Refresh\" button to update the printer model list in this Printer Application.</p>\n",
+			extra_ppd_dir);
+
+  papplClientHTMLStartForm(client, uri, false);
+  papplClientHTMLPuts(client,
+		      "          <table class=\"form\">\n"
+		      "            <tbody>\n");
+
+  papplClientHTMLPuts(client, "          <tr><th>&nbsp;&nbsp;&nbsp;&nbsp;</th><td><input type=\"hidden\" name=\"action\" value=\"refresh-ppdfiles\"><input type=\"submit\" value=\"Refresh\"></td>\n");
+
+  papplClientHTMLPuts(client,
+		      "            </tbody>\n"
+		      "          </table>\n"
+		      "        </form>\n");
 
   papplClientHTMLPuts(client,
                       "      </div>\n"
