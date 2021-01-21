@@ -4378,8 +4378,9 @@ ps_system_web_add_ppd(
 		{
 		  fclose(fp);
 		  fp = NULL;
-		  // Default is PPD_CONFORM_RELAXED, needs testing XXX
-		  ppdSetConformance(PPD_CONFORM_STRICT);
+		  // Default is PPD_CONFORM_RELAXED, uncomment if not
+		  // perfectly conforming PPD files cause problems
+		  //ppdSetConformance(PPD_CONFORM_STRICT);
 		  if ((ppd = ppdOpenFile(destpath)) == NULL)
 		  {
 		    ppd_status_t err;		// Last error in file
@@ -4422,7 +4423,7 @@ ps_system_web_add_ppd(
 		    // Log the addtion of the PPD file
 		    cupsArrayAdd(uploaded, strdup(destpath));
 		  }
-		  ppdSetConformance(PPD_CONFORM_RELAXED);
+		  //ppdSetConformance(PPD_CONFORM_RELAXED);
 		}
 	      }
 	    }
