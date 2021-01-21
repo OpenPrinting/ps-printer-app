@@ -428,7 +428,7 @@ ps_autoadd(const char *device_info,	// I - Device name (unused)
 	score += 32;
 
       // PPD matches user's/system's language?
-      // To be added when PAPPL supports internationalization XXX
+      // To be added when PAPPL supports internationalization (TODO)
       // score + 8 for 2-char language
       // score + 16 for 5-char language/country
 
@@ -4823,7 +4823,7 @@ ps_status(
   }
 
   // Use commandtops CUPS filter code to check status here (ink levels, ...)
-  // XXX
+  // (TODO)
 
   // Do PostScript jobs for polling only once a minute or once every five
   // minutes, therefore save time of last call in a static variable. and

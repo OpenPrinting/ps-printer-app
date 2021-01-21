@@ -116,8 +116,9 @@ This Printer Application is a working model for
 - Use [pyppd](https://github.com/OpenPrinting/pyppd) to compress the
   built-in PPD repositories
 
-- In `ps-printer-app.c` many places are marked with `XXX`. These are
-  points to be improved.
+- In `ps-printer-app.c` some places are marked with `TODO`. These are
+  points to be improved or where functionality in PAPPL is still
+  needed.
 
 
 ## BUILDING AND INSTALLING
