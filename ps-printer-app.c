@@ -25,6 +25,7 @@
 #include <cupsfilters/filter.h>
 #include <cupsfilters/ieee1284.h>
 #include <cups/cups.h>
+#include <cups/dir.h>
 #include <string.h>
 #include <limits.h>
 #include <stdlib.h>
@@ -4130,6 +4131,9 @@ ps_system_web_add_ppd(
                                         // them in certain error conditions
                       *accepted_report, // Report of accepted PPDs with warnings
                       *rejected_report; // Report of rejected PPDs with errors
+  cups_dir_t          *dir;             // User PPD file directory
+  cups_dentry_t       *dent;            // Entry in user PPD file directory
+  cups_array_t        *user_ppd_files;  // List of user-uploaded PPD files
 
 
   if (!papplClientHTMLAuthorize(client))
@@ -4150,7 +4154,8 @@ ps_system_web_add_ppd(
     cups_option_t	*form = NULL;	// Form variables
     cups_option_t	*opt;
     const char		*action;	// Form action
-    char                strbuf[2048];
+    char                strbuf[2048],
+                        destpath[2048];	// File destination path
     const char	        *content_type;	// Content-Type header
     const char	        *boundary;	// boundary value for multi-part
     http_t              *http;
@@ -4193,7 +4198,6 @@ ps_system_web_add_ppd(
       http_state_t initial_state;	// Initial HTTP state
       char	name[1024],		// Form variable name
 		filename[1024],		// Form filename
-		destpath[2048],		// File destination path
 		bstring[256],		// Boundary string to look for
 		*bend,			// End of value (boundary)
 		*line;			// Start of line
@@ -4545,6 +4549,24 @@ ps_system_web_add_ppd(
       }
       else if (!strcmp(action, "add-ppdfiles"))
 	status = "PPD file(s) uploaded.";
+      else if (!strcmp(action, "delete-ppdfiles"))
+      {
+	for (i = num_form, opt = form; i > 0;
+	     i --, opt ++)
+	  if (opt->name[0] == '\t')
+	  {
+	    snprintf(destpath, sizeof(destpath), "%s/%s", extra_ppd_dir,
+		     opt->name + 1);
+	    papplLogClient(client, PAPPL_LOGLEVEL_DEBUG,
+			   "Deleting file: %s", destpath);
+	    unlink(destpath);
+	    ppd_repo_changed = true;
+	  }
+	if (ppd_repo_changed)
+	  status = "PPD file(s) deleted.";
+	else
+	  status = "No PPD file selected for deletion.";
+      }
       else
       {
 	status = "Unknown action.";
@@ -4596,19 +4618,14 @@ ps_system_web_add_ppd(
     papplClientHTMLPrintf(client, "          <div class=\"banner\">%s</div>\n", status);
 
   papplClientHTMLPuts(client,
-                      "        </div>\n"
-                      "      </div>\n"
-                      "      <div class=\"row\">\n");
-  uri = papplClientGetURI(client);
-
-  // Multi-part, as we want to upload a PPD file here
-  papplClientHTMLStartForm(client, uri, true);
-  papplClientHTMLPuts(client,
-                      "        <div class=\"col-12\">\n"
 		      "        <h3>Add the PPD file(s) of your printer(s)</h3>\n");
   papplClientHTMLPuts(client,
 		      "        <p>If your printer is not already supported by this Printer Application, you can add support for it by uploading your printer's PPD file here. Only add PPD files for PostScript printers, PPD files of CUPS drivers do not work with this Printer Application!</p>\n");
 
+  uri = papplClientGetURI(client);
+
+  // Multi-part, as we want to upload a PPD file here
+  papplClientHTMLStartForm(client, uri, true);
 
   papplClientHTMLPuts(client,
 		      "          <table class=\"form\">\n"
@@ -4643,8 +4660,56 @@ ps_system_web_add_ppd(
   papplClientHTMLPuts(client,
 		      "            </tbody>\n"
 		      "          </table>\n"
-		      "          </div>\n"
 		      "        </form>\n");
+
+  if ((dir = cupsDirOpen(extra_ppd_dir)) == NULL)
+  {
+    papplLog(system, PAPPL_LOGLEVEL_WARN,
+	     "Unable to read user PPD directory '%s': %s",
+	     extra_ppd_dir, strerror(errno));
+  }
+  else
+  {
+    user_ppd_files = cupsArrayNew3((cups_array_func_t)strcasecmp,
+				   NULL, NULL, 0, NULL,
+				   (cups_afree_func_t)free);
+    while ((dent = cupsDirRead(dir)) != NULL)
+      if (dent->filename[0] && dent->filename[0] != '.')
+	cupsArrayAdd(user_ppd_files, strdup(dent->filename));
+
+    cupsDirClose(dir);
+
+    if (cupsArrayCount(user_ppd_files))
+    {
+      papplClientHTMLPrintf(client, "          <hr>\n");
+
+      papplClientHTMLPuts(client,
+			  "          <h3>User-uploaded PPD files</h3>\n");
+
+      papplClientHTMLPuts(client,
+			  "          <p>To remove files, mark them and click the \"Delete\" button</p>\n");
+
+      papplClientHTMLStartForm(client, uri, false);
+      papplClientHTMLPuts(client,
+			  "          <table class=\"form\">\n"
+			  "            <tbody>\n");
+
+      for (i = 0; i < cupsArrayCount(user_ppd_files); i ++)
+	papplClientHTMLPrintf(client,
+			      "              <tr><th><input type=\"checkbox\" name=\"\t%s\"></th><td>%s</td></tr>\n",
+			      (char *)cupsArrayIndex(user_ppd_files, i),
+			      (char *)cupsArrayIndex(user_ppd_files, i));
+
+      papplClientHTMLPuts(client, "          <tr><th></th><td><input type=\"hidden\" name=\"action\" value=\"delete-ppdfiles\"><input type=\"submit\" value=\"Delete\"></td>\n");
+
+      papplClientHTMLPuts(client,
+			  "            </tbody>\n"
+			  "          </table>\n"
+			  "        </form>\n");
+    }
+
+    cupsArrayDelete(user_ppd_files);
+  }
 
   papplClientHTMLPuts(client,
                       "      </div>\n"
