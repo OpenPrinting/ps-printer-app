@@ -4679,7 +4679,10 @@ ps_system_web_add_ppd(
 				   NULL, NULL, 0, NULL,
 				   (cups_afree_func_t)free);
     while ((dent = cupsDirRead(dir)) != NULL)
-      if (dent->filename[0] && dent->filename[0] != '.')
+      if (!S_ISDIR(dent->fileinfo.st_mode) &&
+	  dent->filename[0] && dent->filename[0] != '.' &&
+	  (!strcasecmp(dent->filename + strlen(dent->filename) - 4, ".ppd") ||
+	   !strcasecmp(dent->filename + strlen(dent->filename) - 7, ".ppd.gz")))
 	cupsArrayAdd(user_ppd_files, strdup(dent->filename));
 
     cupsDirClose(dir);
@@ -4689,7 +4692,7 @@ ps_system_web_add_ppd(
       papplClientHTMLPrintf(client, "          <hr>\n");
 
       papplClientHTMLPuts(client,
-			  "          <h3>User-uploaded PPD files</h3>\n");
+			  "          <h3>Already uploaded PPD files</h3>\n");
 
       papplClientHTMLPuts(client,
 			  "          <p>To remove files, mark them and click the \"Delete\" button</p>\n");
