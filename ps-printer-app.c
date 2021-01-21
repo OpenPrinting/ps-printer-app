@@ -3379,7 +3379,7 @@ ps_printer_web_device_config(
 			"          <h3>Poll printing defaults from the printer</h3>\n");
 
     papplClientHTMLPuts(client,
-			"          <br>Note that settings polled from the printer overwrite your original settings.</br>\n");
+			"          <p>Note that settings polled from the printer overwrite your original settings.</p>\n");
     if (polled_defaults)
       papplClientHTMLPuts(client,
 			  "          <br>Polling results:</br>\n");
@@ -3405,7 +3405,7 @@ ps_printer_web_device_config(
 
     papplClientHTMLPuts(client,
 			"            </tbody>\n"
-			"          </table>"
+			"          </table>\n"
 			"        </form>\n");
   }
 
