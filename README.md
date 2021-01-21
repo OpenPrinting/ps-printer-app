@@ -86,6 +86,9 @@ This Printer Application is a working model for
   These queries are supported by the web interface of the Printer
   Application.
 
+- An expandable Printer Application: The user can add PPD files via the
+  administration web interface to support additional printer models.
+
 
 ## KNOWN ISSUES
 
@@ -103,8 +106,6 @@ This Printer Application is a working model for
 
 - Correct locations for the state file, the log file, and user-added
   PPD files
-
-- Add PPD files via web interface
 
 - Build options for cups-filters, to build without libqpdf and/or
   without libppd, the former will allow to create the Snap of this
