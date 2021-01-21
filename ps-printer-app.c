@@ -140,6 +140,9 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
 					 pappl_pr_options_t *job_options);
 static void   ps_driver_delete(pappl_printer_t *printer,
 			       pappl_pr_driver_data_t *driver_data);
+bool          ps_str_has_code(const char *str);
+bool          ps_option_has_code(pappl_system_t *system, ppd_file_t *ppd,
+				 ppd_option_t *option);
 static bool   ps_driver_setup(pappl_system_t *system, const char *driver_name,
 			      const char *device_uri, const char *device_id,
 			      pappl_pr_driver_data_t *driver_data,
@@ -887,7 +890,8 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
 //                        removing a printer.
 //
 
-static void   ps_driver_delete(
+static void
+ps_driver_delete(
     pappl_printer_t *printer,              // I - Printer to be removed
     pappl_pr_driver_data_t *driver_data)   // I - Printer's driver data
 {
@@ -895,8 +899,9 @@ static void   ps_driver_delete(
   ps_driver_extension_t *extension;
 
 
-  papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
-		  "Freeing memory from driver data");
+  if (printer)
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
+		    "Freeing memory from driver data");
 
   extension = (ps_driver_extension_t *)driver_data->extension;
 
@@ -905,30 +910,103 @@ static void   ps_driver_delete(
 
   // Media source
   for (i = 0; i < driver_data->num_source; i ++)
-    free((char *)(driver_data->source[i]));
+    if (driver_data->source[i])
+      free((char *)(driver_data->source[i]));
 
   // Media type
   for (i = 0; i < driver_data->num_type; i ++)
-    free((char *)(driver_data->type[i]));
+    if (driver_data->type[i])
+      free((char *)(driver_data->type[i]));
 
   // Media size
   for (i = 0; i < driver_data->num_media; i ++)
-    free((char *)(driver_data->media[i]));
+    if (driver_data->media[i])
+      free((char *)(driver_data->media[i]));
 
   // Output bins
   for (i = 0; i < driver_data->num_bin; i ++)
-    free((char *)(driver_data->bin[i]));
+    if (driver_data->bin[i])
+      free((char *)(driver_data->bin[i]));
 
   // Vendor options
   for (i = 0; i < driver_data->num_vendor; i ++)
   {
-    free((char *)(driver_data->vendor[i]));
+    if (driver_data->vendor[i])
+      free((char *)(driver_data->vendor[i]));
     if (extension->vendor_ppd_options[i])
       free((char *)(extension->vendor_ppd_options[i]));
   }
 
   // Extension
   free(extension);
+}
+
+
+//
+// 'ps_has_code()' - Check a string whether it contains active PostScript
+//                   or PJL code and not only whitespace and comments
+//
+
+bool
+ps_str_has_code(
+    const char *str)   // I - String to check
+{
+  const char *ptr;
+  bool       incomment = false;
+
+
+  for (ptr = str; *ptr; ptr ++)
+  {
+    if (*ptr == '%' && *(ptr + 1) == '%')  // PostScript comment up to end of
+                                           // line
+      incomment = true;
+    else if (*ptr == '\n' || *ptr == '\r') // New line
+      incomment = false;
+    else if (!incomment && !isspace(*ptr)) // Active code character
+      return (true);
+  }
+  return (false);
+}
+
+
+// 'ps_option_has_code()' - Check a PPD option whether it has active
+//                          PostScript or PJL code in enough choices
+//                          for the option and all its choices making
+//                          sense.
+//                          This means that at maximum one choice can
+//                          be without code.
+//
+
+bool
+ps_option_has_code(
+    pappl_system_t *system, // I - System (for logging)
+    ppd_file_t     *ppd,    // I - PPD file
+    ppd_option_t   *option) // I - Option to check
+{
+  int i;
+  int codeless_choices = 0;
+
+
+  if (option->ui == PPD_UI_PICKONE || option->ui == PPD_UI_BOOLEAN)
+  {
+    for (i = 0; i < option->num_choices; i ++)
+      if (!ps_str_has_code(option->choices[i].code))
+	codeless_choices ++;
+    if (codeless_choices > 1)
+    {
+      papplLog(system, PAPPL_LOGLEVEL_WARN,
+	       "Skipping option \"%s\", the PPD file does not provide PostScript/PJL code for all its choices.",
+	       option->keyword);
+      if (ppd->num_filters)
+	papplLog(system, PAPPL_LOGLEVEL_WARN,
+		 "This option most probably needs a CUPS filter to work. Is this a PostScript PPD?");
+      else
+	papplLog(system, PAPPL_LOGLEVEL_WARN,
+		 "The PPD file is probably broken.");
+      return (false);
+    }
+  }
+  return (true);
 }
 
 
@@ -1226,7 +1304,7 @@ ps_driver_setup(
     driver_data->color_default = PAPPL_COLOR_MODE_MONOCHROME;
   }
 
-  // These parameters are usually not defined in PPDs but a standard IPP
+  // These parameters are usually not defined in PPDs but standard IPP
   // options settable in the web interface
   if (!update)
   {
@@ -1249,27 +1327,32 @@ ps_driver_setup(
   driver_data->sides_supported = PAPPL_SIDES_ONE_SIDED;
   driver_data->duplex = PAPPL_DUPLEX_NONE;
   if (!update) driver_data->sides_default = PAPPL_SIDES_ONE_SIDED;
-  if (pc->sides_2sided_long &&
-      !(update && ppdInstallableConflict(ppd, pc->sides_option,
-					 pc->sides_2sided_long)))
+  if (pc->sides_option &&
+      (option = ppdFindOption(ppd, pc->sides_option)) != NULL &&
+      ps_option_has_code(system, ppd, option))
   {
-    driver_data->sides_supported |= PAPPL_SIDES_TWO_SIDED_LONG_EDGE;
-    driver_data->duplex = PAPPL_DUPLEX_NORMAL;
-    if (!update &&
-	(choice = ppdFindMarkedChoice(ppd, pc->sides_option)) != NULL &&
-	strcmp(choice->choice, pc->sides_2sided_long) == 0)
-      driver_data->sides_default = PAPPL_SIDES_TWO_SIDED_LONG_EDGE;
-  }
-  if (pc->sides_2sided_short &&
-      !(update && ppdInstallableConflict(ppd, pc->sides_option,
-					 pc->sides_2sided_short)))
-  {
-    driver_data->sides_supported |= PAPPL_SIDES_TWO_SIDED_SHORT_EDGE;
-    driver_data->duplex = PAPPL_DUPLEX_NORMAL;
-    if (!update &&
-	(choice = ppdFindMarkedChoice(ppd, pc->sides_option)) != NULL &&
-	strcmp(choice->choice, pc->sides_2sided_short) == 0)
-      driver_data->sides_default = PAPPL_SIDES_TWO_SIDED_SHORT_EDGE;
+    if (pc->sides_2sided_long &&
+	!(update && ppdInstallableConflict(ppd, pc->sides_option,
+					   pc->sides_2sided_long)))
+    {
+      driver_data->sides_supported |= PAPPL_SIDES_TWO_SIDED_LONG_EDGE;
+      driver_data->duplex = PAPPL_DUPLEX_NORMAL;
+      if (!update &&
+	  (choice = ppdFindMarkedChoice(ppd, pc->sides_option)) != NULL &&
+	  strcmp(choice->choice, pc->sides_2sided_long) == 0)
+	driver_data->sides_default = PAPPL_SIDES_TWO_SIDED_LONG_EDGE;
+    }
+    if (pc->sides_2sided_short &&
+	!(update && ppdInstallableConflict(ppd, pc->sides_option,
+					   pc->sides_2sided_short)))
+    {
+      driver_data->sides_supported |= PAPPL_SIDES_TWO_SIDED_SHORT_EDGE;
+      driver_data->duplex = PAPPL_DUPLEX_NORMAL;
+      if (!update &&
+	  (choice = ppdFindMarkedChoice(ppd, pc->sides_option)) != NULL &&
+	  strcmp(choice->choice, pc->sides_2sided_short) == 0)
+	driver_data->sides_default = PAPPL_SIDES_TWO_SIDED_SHORT_EDGE;
+    }
   }
   if (driver_data->sides_default & driver_data->sides_supported == 0)
   {
@@ -1284,11 +1367,15 @@ ps_driver_setup(
        finishings;
        finishings = (ppd_pwg_finishings_t *)cupsArrayNext(pc->finishings))
   {
-    if (update)
-      for (i = finishings->num_options, opt = finishings->options; i > 0;
-	   i --, opt ++)
-	if (ppdInstallableConflict(ppd, opt->name, opt->value))
-	  break;
+    for (i = finishings->num_options, opt = finishings->options; i > 0;
+	 i --, opt ++)
+    {
+      if (update && ppdInstallableConflict(ppd, opt->name, opt->value))
+	break;
+      if ((option = ppdFindOption(ppd, opt->name)) == NULL ||
+	  !ps_option_has_code(system, ppd, option))
+	break;
+    }
     if (i > 0)
       continue;
     if (finishings->value == IPP_FINISHINGS_STAPLE)
@@ -1302,7 +1389,9 @@ ps_driver_setup(
   // Resolution
   driver_data->num_resolution = 0;
   if ((option = ppdFindOption(ppd, "Resolution")) != NULL &&
-      (count = option->num_choices) > 0) {
+      (count = option->num_choices) > 0 &&
+      ps_option_has_code(system, ppd, option))
+  {
     // Valid "Resolution" option, make a sorted list of resolutions.
     if (update)
     {
@@ -1396,6 +1485,24 @@ ps_driver_setup(
     driver_data->y_default = driver_data->y_resolution[0];
   }
 
+  // For the options Media Source and Media Type we do not need to
+  // assure that both have PostScript/PJL code to tell the printer
+  // which choices are selected, as they depend on each other, by
+  // which media is loaded in which tray.
+  //
+  // If Media Source has PostScript/PJL code and Media Type not, the
+  // code of Media Source selects the tray with whatever is loaded in
+  // it. The Media Type selection in this Printer Application only
+  // serves as a reminder what we have loaded then.
+  //
+  // If Media Type has PostScript/PJL code and Media Source not, the
+  // printer, guided by the code of Media Size and Media Type searches
+  // for the tray which carries this combo, so our codeless Media
+  // Source option only serves for easy selection in this Printer
+  // Application.
+  //
+  // Note that Media Size is required to have PostScript/PJL code
+
   // Media source
   if ((count = pc->num_sources) > 0)
   {
@@ -1466,6 +1573,15 @@ ps_driver_setup(
   }
 
   // Media size, margins
+  if ((option = ppdFindOption(ppd, "PageSize")) == NULL ||
+      !ps_option_has_code(system, ppd, option))
+  {
+    papplLog(system, PAPPL_LOGLEVEL_ERROR,
+	     "PPD does not have a \"PageSize\" option or the option is "
+	     "missing PostScript/PJL code for selecting the page size.");
+    ps_driver_delete(NULL, driver_data);
+    return (false);
+  }
   def_left = def_right = def_top = def_bottom = -1;
   driver_data->borderless = false;
   count = pc->num_sizes;
@@ -1676,7 +1792,9 @@ ps_driver_setup(
   driver_data->tracking_supported = 0;
 
   // Output bins
-  if ((count = pc->num_bins) > 0)
+  if ((count = pc->num_bins) > 0 &&
+      (option = ppdFindOption(ppd, "OutputBin")) != NULL &&
+      ps_option_has_code(system, ppd, option))
   {
     if (!update)
       choice = ppdFindMarkedChoice(ppd, "OutputBin");
@@ -1797,6 +1915,11 @@ ps_driver_setup(
 	   !strcasecmp(option->keyword, pc->source_option)) ||
 	  (pc->sides_option &&
 	   !strcasecmp(option->keyword, pc->sides_option)))
+	continue;
+
+      // Check whether there is not more than one at least all but one choice
+      // without active PostScript or PJL code to inject into the job stream
+      if (!ps_option_has_code(system, ppd, option))
 	continue;
 
       // Stop and warn if we have no slot for vendor attributes any more
