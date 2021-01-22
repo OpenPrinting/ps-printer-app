@@ -4811,7 +4811,7 @@ ps_system_web_add_ppd(
   papplClientHTMLPuts(client,
 		      "        <h3>Add the PPD file(s) of your printer(s)</h3>\n");
   papplClientHTMLPuts(client,
-		      "        <p>If your printer is not already supported by this Printer Application, you can add support for it by uploading your printer's PPD file here. Only add PPD files for PostScript printers, PPD files of CUPS drivers do not work with this Printer Application!</p>\n");
+		      "        <p>If your printer is not already supported by this Printer Application, you can add support for it by uploading your printer's PPD file here. Only add PPD files for PostScript printers, PPD files of CUPS drivers for non-PostScript printers do not work with this Printer Application!</p>\n");
 
   uri = papplClientGetURI(client);
 
