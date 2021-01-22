@@ -4244,7 +4244,7 @@ ps_system_web_add_ppd(
     pappl_client_t *client,		// I - Client
     pappl_system_t *system)		// I - System
 {
-  int                 i;                // Looping variable
+  int                 i, j;             // Looping variables
   const char          *status = NULL;	// Status text, if any
   const char          *uri = NULL;      // Client URI
   pappl_version_t     version;
@@ -4325,6 +4325,10 @@ ps_system_web_add_ppd(
       size_t	blen;			// Length of boundary string
       FILE      *fp = NULL;
       ppd_file_t *ppd = NULL;		// PPD file data for verification
+      ppd_group_t *group;
+      ppd_option_t *option;
+      bool      codeless_option_found;
+      bool      pagesize_option_ok;
 
 
       // Read one buffer full of data, then search for \r only up to a
@@ -4523,28 +4527,88 @@ ps_system_web_add_ppd(
 		  }
 		  else
 		  {
-		    // Check for cupsFilter(2) entries and issue warning
+		    // Check for cupsFilter(2) entries and for options
+		    // where the choices have no PostScript or PJL code
+		    // to insert into the job stream. This indicates that
+		    // the PPD file is possibly for a CUPSdriver and not
+		    // for PostScript printing.
+		    // We do not reject these PPDs right away, as there
+		    // are some PostScript PPDs which use a filter only
+		    // to implement some non-essential options. Therefore
+		    // we issue a warning in such a case.
 		    if (ppd->num_filters)
+		      snprintf(strbuf, sizeof(strbuf),
+			       "%s: WARNING: CUPS driver PPD, possibly non-PostScript, options which will not work:",
+			       filename);
+		    else
+		      snprintf(strbuf, sizeof(strbuf),
+			       "%s: WARNING: Options which will not work:",
+			       filename);
+		    codeless_option_found = false;
+		    pagesize_option_ok = false;
+		    for (i = ppd->num_groups, group = ppd->groups;
+			 i > 0;
+			 i --, group ++)
 		    {
-		      // We have at least one "*cupsFilter(2):..." line
-		      // in the PPD file
-		      // Log success with warning
+		      // Skip "Installable Options" they do not need code
+		      if (!strncasecmp(group->name, "Installable", 11) != 0)
+			continue;
+		      for (j = group->num_options, option = group->options;
+			   j > 0;
+			   j --, option ++)
+		      {
+			// Less than 2 choices, do not consider
+			if (option->num_choices < 2)
+			  continue;
+			// Skip "PageRegion"
+			if (!strcasecmp(option->keyword, "PageRegion"))
+			  continue;
+			// Do the choices provide code? If not, warn about
+			// this option not to work
+			if (!ps_option_has_code(system, ppd, option))
+			{
+			  codeless_option_found = true;
+			  snprintf(strbuf + strlen(strbuf),
+				   sizeof(strbuf) - strlen(strbuf) - 1,
+				   " %s,",
+				   option->text ? option->text :
+				   option->keyword);
+			} else if (!strcasecmp(option->keyword, "PageSize"))
+			  pagesize_option_ok = true;
+		      }
+		    }
+		    if (codeless_option_found)
+		      strbuf[strlen(strbuf) - 1] = '\0';
+		    else if (ppd->num_filters)
+		    {
+		      // Log only the fact that PPD uses filter
 		      snprintf(strbuf, sizeof(strbuf),
 			       "%s: WARNING: CUPS driver PPD, possibly non-PostScript",
 			       filename);
-		      cupsArrayAdd(accepted_report, strdup(strbuf));
 		    }
 		    else
 		    {
 		      // Log success without warning
 		      snprintf(strbuf, sizeof(strbuf), "%s: OK", filename);
-		      cupsArrayAdd(accepted_report, strdup(strbuf));
 		    }
 		    ppdClose(ppd);
-		    // New PPD added, so driver list needs update
-		    ppd_repo_changed = true;
-		    // Log the addtion of the PPD file
-		    cupsArrayAdd(uploaded, strdup(destpath));
+		    if (pagesize_option_ok)
+		    {
+		      cupsArrayAdd(accepted_report, strdup(strbuf));
+		      // New PPD added, so driver list needs update
+		      ppd_repo_changed = true;
+		      // Log the addtion of the PPD file
+		      cupsArrayAdd(uploaded, strdup(destpath));
+		    }
+		    else
+		    {
+		      // PPD for sure not PostScript, delete it.
+		      unlink(destpath);
+		      // Report error
+		      snprintf(strbuf, sizeof(strbuf),
+			       "%s: No valid \"PageSize\" option, not a PostScript PPD file", filename);
+		      cupsArrayAdd(rejected_report, strdup(strbuf));
+		    }
 		  }
 		  //ppdSetConformance(PPD_CONFORM_RELAXED);
 		}
