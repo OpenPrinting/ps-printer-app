@@ -125,6 +125,8 @@ static  char              extra_ppd_dir[1024] = ""; // Directory where PPDs
                                            // added by the user are held
 static  char              ppd_dirs_env[1024]; // Environment variable PPD_DIRS
                                            // with the PPD directories
+static  char              state_file[1024];// State file, customicable via
+                                           // STATE_FILE environment variable
 
 
 //
@@ -5006,7 +5008,7 @@ ps_status(
     ippDelete(vendor_attrs);
 
     // Save new default settings
-    papplSystemSaveState(system, STATE_FILE);
+    papplSystemSaveState(system, state_file);
   }
 
   // Use commandtops CUPS filter code to check status here (ink levels, ...)
@@ -5128,6 +5130,10 @@ system_cb(int           num_options,	// I - Number of options
       port = atoi(val);
   }
 
+  // State file
+  if ((val = getenv("STATE_FILE")) != NULL)
+    snprintf(state_file, sizeof(state_file), "%s", val);
+
   // Create the system object...
   if ((system =
        papplSystemCreate(soptions,
@@ -5152,12 +5158,12 @@ system_cb(int           num_options,	// I - Number of options
 			   "<a href=\"https://www.apache.org/licenses/LICENSE-2.0\">"
 			   "Apache License 2.0</a>.");
   papplSystemSetSaveCallback(system, (pappl_save_cb_t)papplSystemSaveState,
-			     (void *)STATE_FILE);
+			     (void *)state_file);
   papplSystemSetVersions(system,
 			 (int)(sizeof(versions) / sizeof(versions[0])),
 			 versions);
 
-  if (!papplSystemLoadState(system, STATE_FILE))
+  if (!papplSystemLoadState(system, state_file))
     papplSystemSetDNSSDName(system,
 			    system_name ? system_name : SYSTEM_NAME);
 

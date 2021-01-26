@@ -6,5 +6,6 @@ mkdir -p $SNAP_COMMON/ppd
 
 export TESTPAGE_DIR=$SNAP/usr/share/ps-printer-app
 export PPD_PATHS=$SNAP/usr/share/ppd/:$SNAP_COMMON/ppd/
+export STATE_FILE=$SNAP_COMMON/ps-printer-app.state
 
 exec $SNAP/usr/bin/ps-printer-app $*
