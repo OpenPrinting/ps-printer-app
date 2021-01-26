@@ -13,6 +13,10 @@ grade: stable
 confinement: strict
 
 apps:
+  ps-printer-app-server:
+    command: scripts/run-ps-printer-app -o log-level=debug -o log-file=/var/snap/ps-printer-app/common/ps-printer-app.log server
+    daemon: simple
+    plugs: [avahi-control, home, log-observe, network, network-bind, network-manager, raw-usb]
   ps-printer-app:
     command: scripts/run-ps-printer-app
     plugs: [avahi-control, home, log-observe, network, network-bind, network-manager, raw-usb]
