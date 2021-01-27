@@ -5134,7 +5134,7 @@ system_cb(int           num_options,	// I - Number of options
   if ((val = getenv("STATE_FILE")) != NULL)
     snprintf(state_file, sizeof(state_file), "%s", val);
   else
-    snprintf(state_file, sizeof(state_file), "%s", STATE_NAME);
+    snprintf(state_file, sizeof(state_file), "%s", STATE_FILE);
 
   // Create the system object...
   if ((system =
