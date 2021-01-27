@@ -5007,8 +5007,10 @@ ps_status(
     ippCopyAttributes(driver_attrs, vendor_attrs, 0, NULL, NULL);
     ippDelete(vendor_attrs);
 
-    // Save new default settings
-    papplSystemSaveState(system, state_file);
+    // Save new default settings (but only if system is running, to not
+    // overwrite the state file when it is still loaded during startup)
+    if (papplSystemIsRunning(system))
+      papplSystemSaveState(system, state_file);
   }
 
   // Use commandtops CUPS filter code to check status here (ink levels, ...)
