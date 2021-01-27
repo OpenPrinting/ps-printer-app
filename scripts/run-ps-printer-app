@@ -3,6 +3,7 @@
 #set -e -x
 
 mkdir -p $SNAP_COMMON/ppd
+mkdir -p $SNAP_COMMON/ssl
 
 export TESTPAGE_DIR=$SNAP/usr/share/ps-printer-app
 export PPD_PATHS=$SNAP/usr/share/ppd/:$SNAP_COMMON/ppd/

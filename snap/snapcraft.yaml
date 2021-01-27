@@ -42,12 +42,12 @@ parts:
         - usr/lib/libjpeg.so.9.4.0
 
   pappl:
-    plugin: autotools
-    configflags: [--prefix=/usr, --enable-libjpeg,--enable-libpng,--enable-libusb,--with-dnssd=avahi]
     source: https://github.com/michaelrsweet/pappl
     source-type: git
-    build-packages: [libavahi-client-dev, libcups2-dev, libcupsimage2-dev, libgnutls28-dev, libjpeg-dev, libpam-dev, libpng-dev, libusb-1.0-0-dev, zlib1g-dev]
-    stage-packages: [libavahi-client3, libcups2, libcupsimage2, libpng16-16, libusb-1.0-0]
+    plugin: autotools
+    configflags: [--prefix=/usr, --enable-libjpeg,--enable-libpng,--enable-libusb,--with-dnssd=avahi]
+    build-packages: [libavahi-client-dev, libgnutls28-dev, libjpeg-dev, libpam-dev, libpng-dev, libusb-1.0-0-dev, zlib1g-dev]
+    stage-packages: [libavahi-client3, libpng16-16, libusb-1.0-0]
     prime:
         - -etc/fonts
         - -var
@@ -117,6 +117,68 @@ parts:
     organize:
       snap/ps-printer-app/current/usr/share: usr/share
 
+  cups:
+    source: https://github.com/OpenPrinting/cups
+    source-type: git
+    plugin: autotools
+    override-build: |
+        set -eux
+        sed -i 's|"\$sysconfdir/cups")|"/var/snap/ps-printer-app/common")|g' config-scripts/cups-directories.m4
+        rm configure
+        autoconf
+        ./configure
+        cd cups
+        make
+        cd ..
+        mkdir -p $SNAPCRAFT_STAGE/usr/lib
+        cp cups/libcups*.a $SNAPCRAFT_STAGE/usr/lib/
+        cp cups/libcups*.so* $SNAPCRAFT_STAGE/usr/lib/
+        mkdir -p $SNAPCRAFT_STAGE/usr/include/cups
+        cp cups/*.h $SNAPCRAFT_STAGE/usr/include/cups/
+        mkdir -p $SNAPCRAFT_STAGE/usr/bin
+        cp cups-config $SNAPCRAFT_STAGE/usr/bin/
+        #snapcraftctl build
+    build-packages:
+        - patch
+        - autoconf
+        - automake
+        - libtool
+        - autotools-dev
+        - pkg-config
+        - libavahi-client-dev
+        - libavahi-common-dev
+        - libavahi-compat-libdnssd-dev
+        - libdbus-1-dev
+        - libfontconfig1-dev
+        - libfreetype6-dev
+        - libgnutls28-dev
+        - libjpeg-dev
+        - libldap2-dev
+        - libkrb5-dev
+        - libpam0g-dev
+        - libpaper-dev
+        - libpng-dev
+    stage-packages:
+        - libavahi-common3
+        - libavahi-client3
+        - libicu60
+        - libjson-glib-1.0-0
+        - libsoup2.4-1
+        - libxml2
+    prime:
+        - -etc/fonts
+        - -var
+        - -usr/include
+        - -usr/lib/pkgconfig
+        - -usr/share/fonts
+        - -usr/share/man
+        - -usr/share/doc
+        - -usr/share/doc-base
+        - -usr/share/lintian
+        - usr/lib
+        - usr/lib/libcups.so.2
+        - usr/lib/libcupsimage.so.2
+
   cups-filters:
     source: https://github.com/OpenPrinting/cups-filters
     source-type: git
@@ -163,8 +225,6 @@ parts:
     stage-packages:
         - poppler-utils
         - libpoppler-cpp0v5
-        - libcups2
-        - libcupsimage2
         - libjbig0
         - liblcms2-2
         - libtiff5
@@ -185,7 +245,7 @@ parts:
         - usr/lib/libppd.so.1
         - usr/lib/libppd.so.1.0.0
         - usr/bin/pdftops
-    after: [jpeglib, qpdf, ghostscript]
+    after: [jpeglib, cups, qpdf, ghostscript]
 
   foomatic-db:
     source: https://github.com/OpenPrinting/foomatic-db
