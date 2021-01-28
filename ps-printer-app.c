@@ -806,7 +806,8 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
   {
     papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: %s",
 		extension->vendor_ppd_options[i]);
-    if ((attr = papplJobGetAttribute(job, driver_data.vendor[i])) == NULL)
+    if ((attr = papplJobGetAttribute(job, driver_data.vendor[i])) == NULL ||
+	ippGetString(attr, 0, NULL) == NULL)
     {
       snprintf(buf, sizeof(buf), "%s-default", driver_data.vendor[i]);
       attr = ippFindAttribute(driver_attrs, buf, IPP_TAG_ZERO);
