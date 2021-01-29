@@ -1357,7 +1357,7 @@ ps_driver_setup(
 	driver_data->sides_default = PAPPL_SIDES_TWO_SIDED_SHORT_EDGE;
     }
   }
-  if (driver_data->sides_default & driver_data->sides_supported == 0)
+  if ((driver_data->sides_default & driver_data->sides_supported) == 0)
   {
     driver_data->sides_default = PAPPL_SIDES_ONE_SIDED;
     if (pc->sides_option)
