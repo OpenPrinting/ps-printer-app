@@ -1768,6 +1768,11 @@ ps_driver_setup(
 	}
       }
     }
+    // During initial loading of the state file add a terminating zero
+    // item to manage the "Undo" space when configuring available
+    // media trays on the printer
+    if (!papplSystemIsRunning(system) && j < PAPPL_MAX_SOURCE)
+      driver_data->media_ready[j].source[0] = '\0';
   }
   else
   {
