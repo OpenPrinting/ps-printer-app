@@ -5001,11 +5001,7 @@ ps_status(
     }
 
     // Save the updated driver data back to the printer
-    papplPrinterSetDriverData(printer, &driver_data, NULL);
-
-    // Save the vendor options IPP attributes back into the driver attributes
-    driver_attrs = papplPrinterGetDriverAttributes(printer);
-    ippCopyAttributes(driver_attrs, vendor_attrs, 0, NULL, NULL);
+    papplPrinterSetDriverData(printer, &driver_data, vendor_attrs);
     ippDelete(vendor_attrs);
 
     // Save new default settings (but only if system is running, to not
