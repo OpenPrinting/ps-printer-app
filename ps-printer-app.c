@@ -1785,6 +1785,26 @@ ps_driver_setup(
       driver_data->media_ready[i].source[0] = '\0';
   }
 
+  // Log "media-ready" entries
+  papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	   "Entries for \"media-ready\":");
+  for (i = 0;
+       i < PAPPL_MAX_SOURCE && driver_data->media_ready[i].source[0];
+       i ++)
+  {
+    if (i == driver_data->num_source)
+      papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	       "Undo buffer for \"media-ready\":");
+    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	     "  %s: %s (%s%s)", driver_data->media_ready[i].source,
+	     driver_data->media_ready[i].size_name,
+	     driver_data->media_ready[i].type,
+	     (driver_data->media_ready[i].bottom_margin ||
+	      driver_data->media_ready[i].left_margin ||
+	      driver_data->media_ready[i].right_margin ||
+	      driver_data->media_ready[i].top_margin ? "" : ", Borderless"));
+  }
+
   // Offsets not defined in PPDs
   driver_data->left_offset_supported[0] = 0;
   driver_data->left_offset_supported[1] = 0;
