@@ -1260,7 +1260,8 @@ ps_driver_setup(
   // configuration.
 
   // Get settings of the "Installable Options" from the previous session
-  if ((attr = ippFindAttribute(*driver_attrs, "installable-options-default",
+  if (*driver_attrs &&
+      (attr = ippFindAttribute(*driver_attrs, "installable-options-default",
 			       IPP_TAG_ZERO)) != NULL &&
       ippAttributeString(attr, buf, sizeof(buf)) > 0)
   {
