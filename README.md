@@ -149,20 +149,20 @@ To install the resulting Snap run
 sudo snap install --dangerous ps-printer-app_1.0_amd64.snap
 ```
 
-Then connect the interfaces:
+The Printer Application will automatically be started as a server daemon.
+
+If you are installing the Snap for the first time, connect the
+interfaces and restart the daemon:
 
 ```
 sudo snap connect ps-printer-app:avahi-control
-sudo snap connect ps-printer-app:log-observe
-sudo snap connect ps-printer-app:network-manager
 sudo snap connect ps-printer-app:raw-usb
+sudo snap stop ps-printer-app
+sudo snap start ps-printer-app
 ```
 
-Now fire up the Printer Application as a server daemon:
-
-```
-ps-printer-app server
-```
+The interfaces get connected automatically on any update installation
+of the Snap in the future.
 
 Enter the web interface
 
@@ -181,22 +181,49 @@ with
 ps-printer-app FILE
 ```
 
-You can also add PPD files without rebuilding the Snap. Do
+or print with CUPS, CUPS (and also cups-browsed) discover and treat
+the printers set up with this Printer Application as driverless IPP
+printers (IPP Everywhere and AirPrint).
+
+You can also add PPD files without rebuilding the Snap, either by
+using the "Add PPD files" button in the web interface or by manually
+copying PPD files:
 
 ```
 sudo cp PPDFILE /var/snap/ps-printer-app/common/ppd/
 ```
 
-`PPDFILE` cannot only be a single PPD file but any number of single
-PPD files, `.tar.gz` files containing PPDs (in arbitrary directory
-structure) and PPD-gemerating executables which are usually put into
-`/usr/lib/cups/driver`. You can also create arbitrary sub-directory
-structures in `/var/snap/ps-printer-app/current/` containing the
-mentioned types of files. Only make sure to not put any executables
-there which do something else than listing and generating PPD files.
+After manually copying (or removing) PPD files you need to restart the
+server or in the web interface, on the "Add PPD files" page click the
+"Refresh" button at the bottom. This adds the changes to the internal
+driver list.
 
-If you have a `ps-printer-app` server running you have to restart it
-to get your added PPD files visible in the list when adding a printer.
+On the "Add Printer" page in the drop-down to select the driver,
+user-added PPD files are marked "USER-ADDED". When setting up a
+printer with automatic driver selection, user-added PPD files are
+preferred.
+
+`PPDFILE` in the command line above cannot only be a single PPD file
+but any number of single PPD files, `.tar.gz` files containing PPDs
+(in arbitrary directory structure) and PPD-gemerating executables
+which are usually put into `/usr/lib/cups/driver`. You can also create
+arbitrary sub-directory structures in
+`/var/snap/ps-printer-app/current/ppd/` containing the mentioned types
+of files. Only make sure to not put any executables there which do
+anything else than listing and generating PPD files.
+
+Note that with the web interface you can only manage individual PPDs
+(uncompressed or compressed with `gzip`) in the
+`/var/snap/ps-printer-app/current/ppd/` itself. Archives, executables,
+or sub-directories are not shown and appropriate uploads not
+accepted. This especially prevents adding executables without root
+rights.
+
+Any added PPD file must be for PostScript printers, as non-PostScript
+PPD files are for CUPS drivers and so they would need additional files
+in order to work and such files are not supported by this Printer
+Application. The "Add PPD files" page shows warnings if such files get
+uploaded.
 
 See
 
@@ -204,15 +231,17 @@ See
 ps-printer-app --help
 ```
 
-for more options, use the "--debug" info for verbose logging in your
-terminal window.
+for more options.
 
-You can also do a "quick-and-dirty" build wothout snapping. You need a
-directory with the latest GIT snapshot of PAPPL and the latest GIT
-snapshot of cups-filters (master branch). Both PAPPL and cups-filters
-need to be compiled (./cnfigure; make), installing not needed. Also
-install the header files of all needed libraries (installing
-"libcups2-dev" should do it).
+Use the "--debug" argument for verbose logging in your terminal window.
+
+You can also do a "quick-and-dirty" build without snapping and without
+needing to install PAPPL and cups-filters 2.x into your system. You
+need a directory with the latest GIT snapshot of PAPPL and the latest
+GIT snapshot of cups-filters (master branch). Both PAPPL and
+cups-filters need to be compiled (./cnfigure; make), installing not
+needed. Also install the header files of all needed libraries
+(installing "libcups2-dev" should do it).
 
 In the directory with the attached ps-printer-app.c run the command
 line
@@ -233,7 +262,11 @@ searched for in
 ```
 /usr/share/ppd/
 /usr/lib/cups/driver/
+/var/lib/ps-printer-app/ppd/
 ```
+
+The last path is used when adding PPD files using the "Add PPD files"
+page in the web interface.
 
 You can set the `PPD_PATHS` environment variable to search other
 places instead:
@@ -243,7 +276,8 @@ PPD_PATHS=/path/to/my/ppds:/my/second/place ./ps-printer-app server
 ```
 
 Simply put a colon-separated list of any amount of paths into the
-variable. Creating a wrapper script is recommended.
+variable, always the last being used by the "Add PPD files"
+page. Creating a wrapper script is recommended.
 
 For access to the test page `testpage.ps` use the TESTPAGE_DIR
 environment variable:
