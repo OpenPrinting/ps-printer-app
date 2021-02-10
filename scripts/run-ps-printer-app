@@ -1,10 +1,11 @@
 #! /bin/sh
 
-set -e -x
+#set -e -x
 
 mkdir -p $SNAP_COMMON/ppd
 mkdir -p $SNAP_COMMON/ssl
 mkdir -p $SNAP_COMMON/tmp
+chmod 1777 $SNAP_COMMON/tmp >/dev/null 2>&1 || :
 
 export TMPDIR=$SNAP_COMMON/tmp
 export TESTPAGE_DIR=$SNAP/usr/share/ps-printer-app
