@@ -3,6 +3,7 @@
 #set -e -x
 
 mkdir -p $SNAP_COMMON/ppd
+mkdir -p $SNAP_COMMON/spool
 mkdir -p $SNAP_COMMON/ssl
 mkdir -p $SNAP_COMMON/tmp
 chmod 1777 $SNAP_COMMON/tmp >/dev/null 2>&1 || :
@@ -11,5 +12,6 @@ export TMPDIR=$SNAP_COMMON/tmp
 export TESTPAGE_DIR=$SNAP/usr/share/ps-printer-app
 export PPD_PATHS=$SNAP/usr/share/ppd/:$SNAP_COMMON/ppd/
 export STATE_FILE=$SNAP_COMMON/ps-printer-app.state
+export SPOOL_DIR=$SNAP_COMMON/spool
 
 exec $SNAP/usr/bin/ps-printer-app $*

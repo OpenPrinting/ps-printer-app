@@ -95,6 +95,7 @@ typedef struct ps_job_data_s		// Job data
 // System directories
 
 #define SYSTEM_STATE_DIR "/var/lib/" SYSTEM_PACKAGE_NAME
+#define SYSTEM_SPOOL_DIR "/var/spool/" SYSTEM_PACKAGE_NAME
 #define SYSTEM_DATA_DIR "/usr/share/" SYSTEM_PACKAGE_NAME
 
 // State file
@@ -125,8 +126,10 @@ static  char              extra_ppd_dir[1024] = ""; // Directory where PPDs
                                            // added by the user are held
 static  char              ppd_dirs_env[1024]; // Environment variable PPD_DIRS
                                            // with the PPD directories
-static  char              state_file[1024];// State file, customicable via
+static  char              state_file[1024];// State file, customizable via
                                            // STATE_FILE environment variable
+static  char              spool_dir[1024]; // Spool directory, customizable via
+                                           // SPOOL_DIR environment variable
 
 
 //
@@ -5161,13 +5164,20 @@ system_cb(int           num_options,	// I - Number of options
   else
     snprintf(state_file, sizeof(state_file), "%s", STATE_FILE);
 
+  // Spool dir
+  if ((val = cupsGetOption("spool-directory", num_options, options)) != NULL ||
+      (val = getenv("SPOOL_DIR")) != NULL)
+    snprintf(spool_dir, sizeof(spool_dir), "%s", val);
+  else
+    snprintf(spool_dir, sizeof(spool_dir), "%s", SYSTEM_SPOOL_DIR);
+
   // Create the system object...
   if ((system =
        papplSystemCreate(soptions,
 			 system_name ? system_name : SYSTEM_NAME,
 			 port,
 			 "_print,_universal",
-			 cupsGetOption("spool-directory", num_options, options),
+			 spool_dir,
 			 logfile ? logfile : "-",
 			 loglevel,
 			 cupsGetOption("auth-service", num_options, options),
