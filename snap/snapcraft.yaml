@@ -57,7 +57,7 @@ parts:
         patch -p1 < $SNAPCRAFT_STAGE/patches/pappl-system-wide-server-socket-support.patch
         snapcraftctl build
     configflags: [--prefix=/usr, --enable-libjpeg,--enable-libpng,--enable-libusb,--with-dnssd=avahi]
-    build-packages: [libavahi-client-dev, libgnutls28-dev, libjpeg-dev, libpam-dev, libpng-dev, libusb-1.0-0-dev, zlib1g-dev]
+    build-packages: [libavahi-client-dev, libgnutls28-dev, libjpeg-dev, libpam0g-dev, libpng-dev, libusb-1.0-0-dev, zlib1g-dev]
     stage-packages: [libavahi-client3, libpng16-16, libusb-1.0-0]
     prime:
         - -etc/fonts
