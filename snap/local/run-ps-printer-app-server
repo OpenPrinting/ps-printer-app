@@ -1,0 +1,2 @@
+#!/bin/sh
+exec $SNAP/scripts/run-ps-printer-app -o log-level=debug -o log-file=$SNAP_COMMON/ps-printer-app.log server "$@"

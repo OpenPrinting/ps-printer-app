@@ -14,7 +14,7 @@ confinement: strict
 
 apps:
   ps-printer-app-server:
-    command: scripts/run-ps-printer-app -o log-level=debug -o log-file=/var/snap/ps-printer-app/common/ps-printer-app.log server
+    command: scripts/run-ps-printer-app-server
     daemon: simple
     plugs: [avahi-control, home, network, network-bind, raw-usb]
   ps-printer-app:
@@ -314,7 +314,7 @@ parts:
     plugin: dump
     source: snap/local/
     organize:
-      run-ps-printer-app: scripts/run-ps-printer-app
+      run-ps-printer-app*: scripts/
     prime:
       - scripts/
     after: [ps-printer-app]
