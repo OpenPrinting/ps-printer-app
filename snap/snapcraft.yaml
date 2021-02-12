@@ -24,9 +24,9 @@ apps:
 parts:
   patches:
     plugin: dump
-    source: patches
+    source: snap/local/
     organize:
-      '*' : patches/
+      '*.patch' : patches/
     override-prime: ""
 
   jpeglib:
@@ -312,7 +312,7 @@ parts:
 
   scripts:
     plugin: dump
-    source: scripts/
+    source: snap/local/
     organize:
       run-ps-printer-app: scripts/run-ps-printer-app
     prime:
