@@ -261,6 +261,13 @@ parts:
         - usr/bin/pdftops
     after: [jpeglib, cups, qpdf, ghostscript]
 
+  pyppd:
+    source: https://github.com/OpenPrinting/pyppd
+    source-type: git
+    plugin: python
+    python-version: python3
+    override-prime: ""
+
   foomatic-db:
     source: https://github.com/OpenPrinting/foomatic-db
     source-type: git
@@ -273,18 +280,24 @@ parts:
         find db/source/PPD -executable -type f -print0 | xargs -0 chmod -x || :
         find db/source/PPD -type f \! -name '*.ppd' -print0 | xargs -0 rm || :
         for f in `find db/source/PPD -name '*.ppd'`; do perl -p -i -e 's/^\*CloseUI(\s+)/*CloseUI:\1/' $f; perl -p -i -e 's/\*1284DeviceId/*1284DeviceID/' $f; perl -p -i -e 's/\*(cupsFilter2?:)/\*%\1/' $f; done
-        cd db/source/PPD; tar -cvf ../../../foomatic-ps-ppds.tar .; cd ../../..
-        gzip --best foomatic-ps-ppds.tar
-        cp foomatic-ps-ppds.tar.gz ../install
+        $SNAPCRAFT_STAGE/bin/pyppd -vv -o ../install/foomatic-ps-ppds db/source/PPD
         snapcraftctl build
     build-packages:
         - perl-base
+        - python3
+        - xz-utils
+    stage-packages:
+        - python3
+        - xz-utils
     organize:
-        foomatic-ps-ppds.tar.gz: usr/share/ppd/foomatic-ps-ppds.tar.gz
+        foomatic-ps-ppds: usr/share/ppd/foomatic-ps-ppds
     stage:
+        - usr/bin
         - usr/share/ppd
     prime:
+        - usr/bin
         - usr/share/ppd
+    after: [pyppd]
 
   hplip:
     source: https://salsa.debian.org/printing-team/hplip.git
@@ -295,18 +308,24 @@ parts:
         find prnt/ps -executable -type f -print0 | xargs -0 chmod -x || :
         find prnt/ps -type f \! -name '*.ppd' -print0 | xargs -0 rm || :
         for f in `find prnt/ps -name '*.ppd'`; do perl -p -i -e 's/^\*CloseUI(\s+)/*CloseUI:\1/' $f; perl -p -i -e 's/\*1284DeviceId/*1284DeviceID/' $f; perl -p -i -e 's/\*(cupsFilter2?:)/\*%\1/' $f; done
-        cd prnt/ps; tar -cvf ../../hplip-ps-ppds.tar .; cd ../..
-        gzip --best hplip-ps-ppds.tar
-        cp hplip-ps-ppds.tar.gz ../install
+        $SNAPCRAFT_STAGE/bin/pyppd -vv -o ../install/hplip-ps-ppds prnt/ps
         snapcraftctl build
     build-packages:
         - perl-base
+        - python3
+        - xz-utils
+    stage-packages:
+        - python3
+        - xz-utils
     organize:
-        hplip-ps-ppds.tar.gz: usr/share/ppd/hplip-ps-ppds.tar.gz
+        hplip-ps-ppds: usr/share/ppd/hplip-ps-ppds
     stage:
+        - usr/bin
         - usr/share/ppd
     prime:
+        - usr/bin
         - usr/share/ppd
+    after: [pyppd]
 
   ps-printer-app:
     plugin: make

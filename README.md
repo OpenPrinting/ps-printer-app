@@ -56,9 +56,14 @@ This Printer Application is a working model for
   of the [foomatic-db](https://github.com/OpenPrinting/foomatic-db)
   and [HPLIP](https://developers.hp.com/hp-linux-imaging-and-printing)
   projects built-in, so most PostScript printer PPDs which usually
-  come with Linux Distributions. Note that some PPDs use certain CUPS
-  filters for extra functionality. These filters are not included. The
-  user can add additional PPDs without needing to rebuild the Snap.
+  come with Linux Distributions. To avoid that this vast number of
+  PPDs blows up the size of the Snap, we highly compress them using
+  [pyppd](https://github.com/OpenPrinting/pyppd). Note that some PPDs
+  use certain CUPS filters for extra functionality. These filters are
+  not included, so only the basic functionality is supported then (in
+  most cases only PIN-protected printing gets lost by this). The user
+  can add additional PPDs without needing to rebuild the Snap (see
+  below).
 
 - We use the printer's IEEE-1284 device ID to identify at first that
   it is a PostScript printer (via CMD: field) to see whether it is
@@ -113,9 +118,6 @@ This Printer Application is a working model for
 
 - Better way to download HPLIP for grabbing the PostScript PPD files
   for HP printers
-
-- Use [pyppd](https://github.com/OpenPrinting/pyppd) to compress the
-  built-in PPD repositories
 
 - In `ps-printer-app.c` some places are marked with `TODO`. These are
   points to be improved or where functionality in PAPPL is still
