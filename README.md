@@ -1,5 +1,7 @@
 # PostScript Printer Application
 
+## INTRODUCTION
+
 This repository contains a Printer Application for PostScript printers
 that uses [PAPPL](https://www.msweet.org/pappl) to support IPP
 printing from multiple operating systems. In addition, it uses the resources
@@ -10,7 +12,8 @@ functions in libcupsfilters, libppd). This work is derived from the
 Your contributions are welcome. Please post [issues and pull
 requests](https://github.com/OpenPrinting/ps-printer-app).
 
-This Printer Application is a working model for
+
+### This Printer Application is a working model for
 
 - A non-raster Printer Application: Destination format is PostScript,
   a high-level/vector format. Input data in PostScript or PDF is
@@ -95,7 +98,7 @@ This Printer Application is a working model for
   administration web interface to support additional printer models.
 
 
-## KNOWN ISSUES
+### Remark
 
 - This Printer Application and its snapping is derived from the
   hp-printer-app, which uses the "avahi-observe" Snap interface to
@@ -103,14 +106,28 @@ This Printer Application is a working model for
   Printer Application this is already corrected to "avahi-control".
 
 
-## TODO:
+### To Do
 
-- Automatic start of the Printer Application as a daemon
+- Add printer auto-setup for all supported printers (Needs support by
+  PAPPL: [Pull Request #36: Add device
+  auto-setup](https://github.com/michaelrsweet/pappl/pull/36))
 
-- Add printer auto-setup for all supported printers
+- Human-readable strings for vendor options (Needs support by PAPPL:
+  [Issue #58: Localization
+  support](https://github.com/michaelrsweet/pappl/issues/58))
 
-- Correct locations for the state file, the log file, and user-added
-  PPD files
+- Internationalization/Localization (Needs support by PAPPL: [Issue
+  #58: Localization
+  support](https://github.com/michaelrsweet/pappl/issues/58))
+
+- Ink level check via ps_status() function (Needs support by PAPPL:
+  [Issue #83: CUPS does IPP and SNMP ink level polls via backends,
+  PAPPL should have functions for
+  this](https://github.com/michaelrsweet/pappl/issues/83))
+
+- In `ps-printer-app.c` some places are marked with `TODO`. These are
+  points to be improved or where functionality in PAPPL is still
+  needed.
 
 - Build options for cups-filters, to build without libqpdf and/or
   without libppd, the former will allow to create the Snap of this
@@ -119,14 +136,13 @@ This Printer Application is a working model for
 - Better way to download HPLIP for grabbing the PostScript PPD files
   for HP printers
 
-- In `ps-printer-app.c` some places are marked with `TODO`. These are
-  points to be improved or where functionality in PAPPL is still
-  needed.
-
-- Auto-connection of Snap interfaces raw-usb and avahi-control: [Request](https://forum.snapcraft.io/t/request-postscript-printer-application-snap-ps-printer-app-auto-connection-to-avahi-control-raw-usb-interfaces/)
+- Auto-connection of Snap interfaces raw-usb and avahi-control:
+  [Request](https://forum.snapcraft.io/t/request-postscript-printer-application-snap-ps-printer-app-auto-connection-to-avahi-control-raw-usb-interfaces/)
 
 
-## BUILDING AND INSTALLING
+## THE SNAP
+
+### Installing and building
 
 To just run and use this Printer Application, simply install it from
 the Snap Store:
@@ -164,7 +180,7 @@ sudo snap install --dangerous ps-printer-app_1.0_amd64.snap
 ```
 
 
-## SETTING UP
+### Setting up
 
 The Printer Application will automatically be started as a server daemon.
 
@@ -270,7 +286,9 @@ line
 gcc -o ps-printer-app ps-printer-app.c $PAPPL_SRC/pappl/libpappl.a $CUPS_FILTERS_SRC/.libs/libppd.a $CUPS_FILTERS_SRC/.libs/libcupsfilters.a -ldl -lpthread  -lppd -lcups -lavahi-common -lavahi-client -lgnutls -ljpeg -lpng16 -ltiff -lz -lm -lusb-1.0 -lpam -lqpdf -lstdc++ -I. -I$PAPPL_SRC/pappl -I$CUPS_FILTERS_SRC/ppd -I$CUPS_FILTERS_SRC/cupsfilters
 ```
 
-Then run
+There is also a Makefile, but this needs PAPPL and cups-filters 2.x to be installed into your system.
+
+Run
 
 ```
 ./ps-printer-app --help
