@@ -151,6 +151,7 @@ parts:
         #snapcraftctl build
     build-packages:
         - patch
+        - gettext
         - autoconf
         - automake
         - libtool
@@ -218,7 +219,9 @@ parts:
         - --without-rcdir
         - --with-pdftops-path=/snap/cups/current/usr/bin/pdftops
     build-packages:
+        - gettext
         - autoconf
+        - automake
         - autotools-dev
         - pkg-config
         - g++
