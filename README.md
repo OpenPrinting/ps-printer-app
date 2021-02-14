@@ -121,17 +121,22 @@ This Printer Application is a working model for
   points to be improved or where functionality in PAPPL is still
   needed.
 
+- Auto-connection of Snap interfaces raw-usb and avahi-control: [Request](https://forum.snapcraft.io/t/request-postscript-printer-application-snap-ps-printer-app-auto-connection-to-avahi-control-raw-usb-interfaces/)
+
 
 ## BUILDING AND INSTALLING
 
-NOTE: There is a bug in Ubuntu Groovy (20.10) that prevents it from
-building Snaps, see [this discussion on the Snapcraft
-forum](https://forum.snapcraft.io/t/build-fails-with-a-mksquashfs-error-cannot-pack-root-prime/). The
-problem is already solved but did not make it into Groovy yet.
+To just run and use this Printer Application, simply install it from
+the Snap Store:
 
-Any older Ubuntu version (like 20.04) should work.
+```
+sudo snap install --edge ps-printer-app
+```
 
-In the main directory of this repository run
+Then follow the instructions below for setting it up.
+
+To build the Snap by yourself, in the main directory of this
+repository run
 
 ```
 snapcraft snap
@@ -143,11 +148,21 @@ Printer Application. Note that PAPPL (upcoming 1.0) and cups-filters
 there are no appropriate releases yet. This can also lead to the fact
 that this Printer Application will suddenly not build any more.
 
+NOTE: There is a bug in Ubuntu Groovy (20.10) that prevents it from
+building Snaps, see [this discussion on the Snapcraft
+forum](https://forum.snapcraft.io/t/build-fails-with-a-mksquashfs-error-cannot-pack-root-prime/). The
+problem is already solved but did not make it into Groovy yet.
+
+Any older Ubuntu version (like 20.04) should work.
+
 To install the resulting Snap run
 
 ```
 sudo snap install --dangerous ps-printer-app_1.0_amd64.snap
 ```
+
+
+## SETTING UP
 
 The Printer Application will automatically be started as a server daemon.
 
@@ -234,6 +249,9 @@ ps-printer-app --help
 for more options.
 
 Use the "--debug" argument for verbose logging in your terminal window.
+
+
+## BUILDING WITHOUT SNAP
 
 You can also do a "quick-and-dirty" build without snapping and without
 needing to install PAPPL and cups-filters 2.x into your system. You
