@@ -1033,14 +1033,14 @@ ps_option_has_code(
 //                       that the extension structure is not yet
 //                       defined. This is the case when the printer
 //                       data structure is created on startup or on
-//                       adding a printer. The we load and read the
+//                       adding a printer. Then we load and read the
 //                       PPD and enter the properties into the driver
 //                       data structure, not taking into account any
 //                       user defaults or accessory settings.
 //
 //                       When called again with the data structure
 //                       already present, it runs in Update mode,
-//                       applying yser defaults and mosifying the data
+//                       applying user defaults and modifying the data
 //                       structure if the user changed the
 //                       configuration of installable accessories.
 //                       This mode is triggered when called by the
@@ -3014,9 +3014,7 @@ ps_poll_device_option_defaults(
 //                                                data and driver IPP
 //                                                attributes for changes
 //                                                in the "Installable Options"
-//                                                settings. The installable
-//                                                options settings must already
-//                                                be marked in the PPD file
+//                                                settings.
 //
 
 static void
@@ -3024,7 +3022,8 @@ ps_printer_update_for_installable_options(
     pappl_printer_t *printer,           // I - Printer
     pappl_pr_driver_data_t driver_data, // I - Driver data
     const char *instoptstr)             // I - Installable options in a string 
-                                        //     of key=value pairs
+                                        //     of key=value pairs or NULL for
+                                        //     keeping current settings
 {
   int                    i;
   pappl_system_t         *system;       // System
@@ -3039,31 +3038,46 @@ ps_printer_update_for_installable_options(
 
   papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
 		  "Updating printer's driver data and attributes to the \"Installable Options\" settings.");
-  papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
-		  "New \"Installable Options\" settings: %s", instoptstr);
+  if (instoptstr)
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
+		    "New \"Installable Options\" settings: %s", instoptstr);
 
   // Get a copy of the driver IPP attributes to save the vendor option settings
   driver_attrs = papplPrinterGetDriverAttributes(printer);
   if ((attr = ippFindAttribute(driver_attrs, "installable-options-default",
 			       IPP_TAG_ZERO)) != NULL &&
       ippAttributeString(attr, buf, sizeof(buf)) > 0)
+  {
     papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
-		    "Applying installable accessories settings: %s", buf);
+		    "Previous installable accessories settings: %s", buf);
+    if (!instoptstr)
+      instoptstr = buf;
+  }
   else
     papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
 		    "Installable Options settings not found");
+
+  // If we have new installable options settings update them in driver_attrs
+  if (instoptstr != buf)
+  {
+    if ((attr = ippFindAttribute(driver_attrs, "installable-options-default",
+				 IPP_TAG_ZERO)) != NULL)
+      ippDeleteAttribute(driver_attrs, attr);
+    ippAddString(driver_attrs, IPP_TAG_PRINTER, IPP_TAG_TEXT,
+		 "installable-options-default", NULL, instoptstr);
+  }
 
   // Update the driver data to correspond with the printer hardware
   // accessory configuration ("Installable Options" in the PPD)
   ps_driver_setup(system, NULL, NULL, NULL, &driver_data, &driver_attrs,
 		  NULL);
 
-  // Copy the vendor option IPP attributes
+  // Data structure for vendor options IPP attributes
   vendor_attrs = ippNew();
+
+  // Copy the vendor option IPP attributes
   for (i = 0; i < driver_data.num_vendor; i ++)
   {
-    if (!strcmp(driver_data.vendor[i], "installable-options"))
-      continue;
     snprintf(buf, sizeof(buf), "%s-default", driver_data.vendor[i]);
     attr = ippFindAttribute(driver_attrs, buf, IPP_TAG_ZERO);
     if (attr)
@@ -3072,6 +3086,8 @@ ps_printer_update_for_installable_options(
       papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
 		      "Default setting for vendor option \"%s\" not found",
 		      driver_data.vendor[i]);
+    if (!strcmp(driver_data.vendor[i], "installable-options"))
+      continue;
     snprintf(buf, sizeof(buf), "%s-supported", driver_data.vendor[i]);
     attr = ippFindAttribute(driver_attrs, buf, IPP_TAG_ZERO);
     if (attr)
@@ -3081,10 +3097,6 @@ ps_printer_update_for_installable_options(
 		      "Supported choices for vendor option \"%s\" not found",
 		      driver_data.vendor[i]);
   }
-
-  // Add the string of installable options settings
-  ippAddString(vendor_attrs, IPP_TAG_PRINTER, IPP_TAG_TEXT,
-	       "installable-options-default", NULL, instoptstr);
 
   // Save the updated driver data back to the printer
   papplPrinterSetDriverData(printer, &driver_data, vendor_attrs);
@@ -3110,6 +3122,7 @@ ps_printer_web_device_config(
   int          i, j, k;                 // Looping variables
   const char   *status = NULL;		// Status text, if any
   const char   *uri = NULL;             // Client URI
+  pappl_system_t *system;               // System
   pappl_pr_driver_data_t driver_data;
   ipp_t        *driver_attrs;
   ps_driver_extension_t *extension;
@@ -3131,6 +3144,7 @@ ps_printer_web_device_config(
   if (!papplClientHTMLAuthorize(client))
     return;
 
+  system = papplPrinterGetSystem(printer);
   papplPrinterGetDriverData(printer, &driver_data);
   driver_attrs = papplPrinterGetDriverAttributes(printer);
   extension = (ps_driver_extension_t *)driver_data.extension;
@@ -3249,8 +3263,7 @@ ps_printer_web_device_config(
       ps_printer_update_for_installable_options(printer, driver_data, buf);
 
       // Save the changes
-      extension->updated = false;
-      ps_status(printer);
+      papplSystemSaveState(system, state_file);
     }
     else if (!strcmp(action, "poll-installable"))
     {
@@ -3302,8 +3315,7 @@ ps_printer_web_device_config(
 	ps_printer_update_for_installable_options(printer, driver_data, buf);
 
 	// Save the changes
-	extension->updated = false;
-	ps_status(printer);
+	papplSystemSaveState(system, state_file);
       }
       else
 	status = "Could not poll installable accessory configuration from "
@@ -5087,6 +5099,8 @@ ps_status(
   extension = (ps_driver_extension_t *)driver_data.extension;
   if (!extension->updated)
   {
+    // Adjust the driver data according to the installed accessories
+    ps_printer_update_for_installable_options(printer, driver_data, NULL);
     // Save new default settings (but only if system is running, to not
     // overwrite the state file when it is still loaded during startup)
     if (papplSystemIsRunning(system))
