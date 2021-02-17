@@ -1596,7 +1596,7 @@ ps_driver_setup(
     ps_driver_delete(NULL, driver_data);
     return (false);
   }
-  def_left = def_right = def_top = def_bottom = -1;
+  def_left = def_right = def_top = def_bottom = 9999999;
   driver_data->borderless = false;
   count = pc->num_sizes;
   if (!update)
@@ -1650,17 +1650,20 @@ ps_driver_setup(
 	def_media = pwg_size;
 	ppdMarkOption(ppd, "PageSize", pwg_size->map.ppd);
       }
-      if (pwg_size->left > def_left)
-	def_left = pwg_size->left;
-      if (pwg_size->right > def_right)
-	def_right = pwg_size->right;
-      if (pwg_size->top > def_top)
-	def_top = pwg_size->top;
-      if (pwg_size->bottom > def_bottom)
-	def_bottom = pwg_size->bottom;
       if (pwg_size->left == 0 && pwg_size->right == 0 &&
 	  pwg_size->top == 0 && pwg_size->bottom == 0)
 	driver_data->borderless = true;
+      else
+      {
+	if (pwg_size->left < def_left)
+	  def_left = pwg_size->left;
+	if (pwg_size->right < def_right)
+	  def_right = pwg_size->right;
+	if (pwg_size->top < def_top)
+	  def_top = pwg_size->top;
+	if (pwg_size->bottom < def_bottom)
+	  def_bottom = pwg_size->bottom;
+      }
       j ++;
     }
 
@@ -1669,23 +1672,23 @@ ps_driver_setup(
   driver_data->num_media = j;
 
   // If margin info missing in the page size entries, use "HWMargins"
-  // line of the PPD file, otherwise default values
-  if (def_left < 0)
+  // line of the PPD file, otherwise zero
+  if (def_left >= 9999999)
     def_left = (ppd->custom_margins[0] ?
-		(int)(ppd->custom_margins[0] / 72.0 * 2540.0) : 635);
-  if (def_bottom < 0)
+		(int)(ppd->custom_margins[0] / 72.0 * 2540.0) : 0);
+  if (def_bottom >= 9999999)
     def_bottom = (ppd->custom_margins[1] ?
-		  (int)(ppd->custom_margins[1] / 72.0 * 2540.0) : 1270);
-  if (def_right < 0)
+		  (int)(ppd->custom_margins[1] / 72.0 * 2540.0) : 0);
+  if (def_right >= 9999999)
     def_right = (ppd->custom_margins[2] ?
-		 (int)(ppd->custom_margins[2] / 72.0 * 2540.0) : 635);
-  if (def_top < 0)
+		 (int)(ppd->custom_margins[2] / 72.0 * 2540.0) : 0);
+  if (def_top >= 9999999)
     def_top = (ppd->custom_margins[3] ?
-	       (int)(ppd->custom_margins[3] / 72.0 * 2540.0) : 1270);
+	       (int)(ppd->custom_margins[3] / 72.0 * 2540.0) : 0);
 
   // Set margin info
-  driver_data->left_right = (def_left > def_right ? def_left : def_right);
-  driver_data->bottom_top = (def_bottom > def_top ? def_bottom : def_right);
+  driver_data->left_right = (def_left < def_right ? def_left : def_right);
+  driver_data->bottom_top = (def_bottom < def_top ? def_bottom : def_right);
 
   // Set default for media
   if (def_media)
