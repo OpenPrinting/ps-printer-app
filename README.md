@@ -184,19 +184,6 @@ sudo snap install --dangerous ps-printer-app_1.0_amd64.snap
 
 The Printer Application will automatically be started as a server daemon.
 
-If you are installing the Snap for the first time, connect the
-interfaces and restart the daemon:
-
-```
-sudo snap connect ps-printer-app:avahi-control
-sudo snap connect ps-printer-app:raw-usb
-sudo snap stop ps-printer-app
-sudo snap start ps-printer-app
-```
-
-The interfaces get connected automatically on any update installation
-of the Snap in the future.
-
 Enter the web interface
 
 ```
