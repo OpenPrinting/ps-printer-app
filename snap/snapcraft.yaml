@@ -134,10 +134,7 @@ parts:
     plugin: autotools
     override-build: |
         set -eux
-        sed -i 's|"\$sysconfdir/cups")|"/var/snap/ps-printer-app/common")|g' config-scripts/cups-directories.m4
-        rm configure
-        autoconf
-        ./configure
+        ./configure --sysconfdir=/var/snap/ps-printer-app/common/
         cd cups
         make
         cd ..
