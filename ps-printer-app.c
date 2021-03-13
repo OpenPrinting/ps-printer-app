@@ -1688,7 +1688,7 @@ ps_driver_setup(
 
   // Set margin info
   driver_data->left_right = (def_left < def_right ? def_left : def_right);
-  driver_data->bottom_top = (def_bottom < def_top ? def_bottom : def_right);
+  driver_data->bottom_top = (def_bottom < def_top ? def_bottom : def_top);
 
   // Set default for media
   if (def_media)
