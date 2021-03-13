@@ -1689,6 +1689,9 @@ ps_driver_setup(
   // Set margin info
   driver_data->left_right = (def_left < def_right ? def_left : def_right);
   driver_data->bottom_top = (def_bottom < def_top ? def_bottom : def_top);
+  papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	   "Margins: Left/Right: %d, Bottom/Top: %d",
+	   driver_data->left_right, driver_data->bottom_top);
 
   // Set default for media
   if (def_media)
@@ -1815,13 +1818,18 @@ ps_driver_setup(
       papplLog(system, PAPPL_LOGLEVEL_DEBUG,
 	       "Undo buffer for \"media-ready\":");
     papplLog(system, PAPPL_LOGLEVEL_DEBUG,
-	     "  %s: %s (%s%s)", driver_data->media_ready[i].source,
+	     "  %s: %s, %s%s, L=%d, B=%d, R=%d, T=%d",
+	     driver_data->media_ready[i].source,
 	     driver_data->media_ready[i].size_name,
 	     driver_data->media_ready[i].type,
 	     (driver_data->media_ready[i].bottom_margin ||
 	      driver_data->media_ready[i].left_margin ||
 	      driver_data->media_ready[i].right_margin ||
-	      driver_data->media_ready[i].top_margin ? "" : ", Borderless"));
+	      driver_data->media_ready[i].top_margin ? "" : ", Borderless"),
+	     driver_data->media_ready[i].left_margin,
+	     driver_data->media_ready[i].bottom_margin,
+	     driver_data->media_ready[i].right_margin,
+	     driver_data->media_ready[i].top_margin);
   }
 
   // Offsets not defined in PPDs
