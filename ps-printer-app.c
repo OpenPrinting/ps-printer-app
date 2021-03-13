@@ -2195,7 +2195,7 @@ ps_filter(
   filename = papplJobGetFilename(job);
   if ((fd = open(filename, O_RDONLY)) < 0)
   {
-    papplLogJob(job, PAPPL_LOGLEVEL_ERROR, "Unable to open JPEG file '%s': %s",
+    papplLogJob(job, PAPPL_LOGLEVEL_ERROR, "Unable to open input file '%s': %s",
 		filename, strerror(errno));
     return (false);
   }
