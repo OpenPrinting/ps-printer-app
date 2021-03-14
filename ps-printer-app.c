@@ -823,7 +823,10 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
     choicestr = NULL;
     if (attr)
     {
-      ptr = strdup(ippGetString(attr, 0, NULL));
+      if (ippGetValueTag(attr) == IPP_TAG_BOOLEAN)
+	ptr = strdup(ippGetBoolean(attr, 0) ? "True" : "False");
+      else
+	ptr = strdup(ippGetString(attr, 0, NULL));
       snprintf(buf, sizeof(buf), "%s-supported", driver_data.vendor[i]);
       attr = ippFindAttribute(driver_attrs, buf, IPP_TAG_ZERO);
       if (attr == NULL)
