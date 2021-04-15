@@ -22,13 +22,6 @@ apps:
     plugs: [avahi-control, home, network, network-bind, raw-usb]
 
 parts:
-  patches:
-    plugin: dump
-    source: snap/local/
-    organize:
-      '*.patch' : patches/
-    override-prime: ""
-
   jpeglib:
     plugin: autotools
     source: https://www.ijg.org/files/jpegsrc.v9d.tar.gz
@@ -52,11 +45,7 @@ parts:
     source: https://github.com/michaelrsweet/pappl
     source-type: git
     plugin: autotools
-    override-build: |
-        set -eux
-        patch -p1 < $SNAPCRAFT_STAGE/patches/pappl-system-wide-server-socket-support.patch
-        snapcraftctl build
-    configflags: [--prefix=/usr, --enable-libjpeg,--enable-libpng,--enable-libusb,--with-dnssd=avahi]
+    configflags: [--prefix=/usr, --with-papplstatedir=/var/snap/ps-printer-app/common, --with-papplsockdir=/var/snap/ps-printer-app/common/tmp, --enable-libjpeg,--enable-libpng,--enable-libusb,--with-dnssd=avahi]
     build-packages: [libavahi-client-dev, libgnutls28-dev, libjpeg-dev, libpam0g-dev, libpng-dev, libusb-1.0-0-dev, zlib1g-dev]
     stage-packages: [libavahi-client3, libpng16-16, libusb-1.0-0]
     prime:
@@ -73,7 +62,7 @@ parts:
         - lib
         - usr/lib
         - usr/lib/libpappl.so.1
-    after: [patches, jpeglib]
+    after: [jpeglib]
 
   qpdf:
     source: https://github.com/qpdf/qpdf/releases/download/release-qpdf-10.0.1/qpdf-10.0.1.tar.gz
