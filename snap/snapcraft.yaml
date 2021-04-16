@@ -1,5 +1,5 @@
 name: ps-printer-app
-base: core18
+base: core20
 version: '1.0'
 summary: PostScript Printer Application
 description: |
@@ -11,6 +11,12 @@ description: |
 
 grade: stable
 confinement: strict
+
+# Only build on the architectures supported
+architectures:
+  - build-on: amd64
+  - build-on: arm64
+  - build-on: armhf
 
 apps:
   ps-printer-app-server:
@@ -26,94 +32,113 @@ parts:
     plugin: autotools
     source: https://www.ijg.org/files/jpegsrc.v9d.tar.gz
     source-type: tar
-    configflags: [--prefix=/usr]
+    autotools-configure-parameters:
+      - --prefix=/usr
     prime:
-        - -etc/fonts
-        - -var
-        - -usr/include
-        - -usr/lib/pkgconfig
-        - -usr/share/fonts
-        - -usr/share/man
-        - -usr/share/doc
-        - -usr/share/doc-base
-        - -usr/share/lintian
-        - -snap
-        - usr/lib/libjpeg.so.9
-        - usr/lib/libjpeg.so.9.4.0
+      - -etc/fonts
+      - -var
+      - -usr/include
+      - -usr/lib/pkgconfig
+      - -usr/share/fonts
+      - -usr/share/man
+      - -usr/share/doc
+      - -usr/share/doc-base
+      - -usr/share/lintian
+      - -snap
+      - usr/lib/libjpeg.so.9
+      - usr/lib/libjpeg.so.9.4.0
 
   pappl:
     source: https://github.com/michaelrsweet/pappl
     source-type: git
     plugin: autotools
-    configflags: [--prefix=/usr, --with-papplstatedir=/var/snap/ps-printer-app/common, --with-papplsockdir=/var/snap/ps-printer-app/common/tmp, --enable-libjpeg,--enable-libpng,--enable-libusb,--with-dnssd=avahi]
-    build-packages: [libavahi-client-dev, libgnutls28-dev, libjpeg-dev, libpam0g-dev, libpng-dev, libusb-1.0-0-dev, zlib1g-dev]
-    stage-packages: [libavahi-client3, libpng16-16, libusb-1.0-0]
+    autotools-configure-parameters:
+      - --prefix=/usr
+      - --with-papplstatedir=/var/snap/ps-printer-app/common
+      - --with-papplsockdir=/var/snap/ps-printer-app/common/tmp
+      - --enable-libjpeg
+      - --enable-libpng
+      - --enable-libusb
+      - --with-dnssd=avahi
+    build-packages:
+      - libavahi-client-dev
+      - libgnutls28-dev
+      - libjpeg-dev
+      - libpam0g-dev
+      - libpng-dev
+      - libusb-1.0-0-dev
+      - zlib1g-dev
+    stage-packages:
+      - libavahi-client3
+      - libpng16-16
+      - libusb-1.0-0
     prime:
-        - -etc/fonts
-        - -var
-        - -usr/include
-        - -usr/lib/pkgconfig
-        - -usr/share/fonts
-        - -usr/share/man
-        - -usr/share/doc
-        - -usr/share/doc-base
-        - -usr/share/lintian
-        - -snap
-        - lib
-        - usr/lib
-        - usr/lib/libpappl.so.1
+      - -etc/fonts
+      - -var
+      - -usr/include
+      - -usr/lib/pkgconfig
+      - -usr/share/fonts
+      - -usr/share/man
+      - -usr/share/doc
+      - -usr/share/doc-base
+      - -usr/share/lintian
+      - -snap
+      - lib
+      - usr/lib
+      - usr/lib/libpappl.so.1
     after: [jpeglib]
 
   qpdf:
-    source: https://github.com/qpdf/qpdf/releases/download/release-qpdf-10.0.1/qpdf-10.0.1.tar.gz
+    source: https://github.com/qpdf/qpdf/releases/download/release-qpdf-10.3.1/qpdf-10.3.1.tar.gz
     plugin: autotools
-    configflags: [--prefix=/usr]
+    autotools-configure-parameters:
+      - --prefix=/usr
     build-packages:
-        - g++
-        #- libjpeg-dev
-        - zlib1g-dev
+      - g++
+      - zlib1g-dev
     stage-packages:
-        - libjpeg-turbo8
+      - libjpeg-turbo8
     prime:
-        - -etc/fonts
-        - -var
-        - -include
-        - -share/man
-        - -share/doc
-        - -share/lintian
-        - -usr/share/fonts
-        - -usr/share/man
-        - -usr/share/doc
-        - -usr/share/doc-base
-        - -usr/share/lintian
-        - -lib/libqpdf.a
+      - -etc/fonts
+      - -var
+      - -include
+      - -share/man
+      - -share/doc
+      - -share/lintian
+      - -usr/share/fonts
+      - -usr/share/man
+      - -usr/share/doc
+      - -usr/share/doc-base
+      - -usr/share/lintian
+      - -lib/libqpdf.a
 
   ghostscript:
-    source: https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs9533/ghostscript-9.53.3.tar.gz
+    source: https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs9540/ghostscript-9.54.0.tar.gz
     plugin: autotools
-    configflags:
-        - --prefix=/usr
-        - --without-x
-        - --disable-gtk
-        - --with-drivers=ps2write
-        - --enable-freetype
-        - --datarootdir=/snap/ps-printer-app/current/usr/share/
+    autotools-configure-parameters:
+      - --prefix=/usr
+      - --without-x
+      - --disable-gtk
+      - --with-drivers=ps2write
+      - --enable-freetype
+      - --without-tesseract
+      - --datarootdir=/snap/ps-printer-app/current/usr/share/
     stage-packages:
-        - libpaper1
-        - libfontconfig1
-        - libfreetype6
-        - libpng16-16
+      - libpaper1
+      - libfontconfig1
+      - libfreetype6
+      - libpng16-16
     prime:
-        - -etc/fonts
-        - -var
-        - -usr/include
-        - -usr/lib/pkgconfig
-        - -usr/share/fonts
-        - -usr/share/man
-        - -usr/share/doc
-        - -usr/share/doc-base
-        - -usr/share/lintian
-        - -snap
+      - -etc/fonts
+      - -var
+      - -usr/include
+      - -usr/lib/pkgconfig
+      - -usr/share/fonts
+      - -usr/share/man
+      - -usr/share/doc
+      - -usr/share/doc-base
+      - -usr/share/lintian
+      - -snap
     organize:
       snap/ps-printer-app/current/usr/share: usr/share
 
@@ -122,136 +147,128 @@ parts:
     source-type: git
     plugin: autotools
     override-build: |
-        set -eux
-        ./configure --sysconfdir=/var/snap/ps-printer-app/common/
-        cd cups
-        make
-        cd ..
-        mkdir -p $SNAPCRAFT_STAGE/usr/lib
-        cp cups/libcups*.a $SNAPCRAFT_STAGE/usr/lib/
-        cp cups/libcups*.so* $SNAPCRAFT_STAGE/usr/lib/
-        mkdir -p $SNAPCRAFT_STAGE/usr/include/cups
-        cp cups/*.h $SNAPCRAFT_STAGE/usr/include/cups/
-        mkdir -p $SNAPCRAFT_STAGE/usr/bin
-        cp cups-config $SNAPCRAFT_STAGE/usr/bin/
-        #snapcraftctl build
+      set -eux
+      ./configure --sysconfdir=/var/snap/ps-printer-app/common/
+      cd cups
+      make
+      cd ..
+      mkdir -p $SNAPCRAFT_STAGE/usr/lib
+      cp cups/libcups*.a $SNAPCRAFT_STAGE/usr/lib/
+      cp cups/libcups*.so* $SNAPCRAFT_STAGE/usr/lib/
+      mkdir -p $SNAPCRAFT_STAGE/usr/include/cups
+      cp cups/*.h $SNAPCRAFT_STAGE/usr/include/cups/
+      mkdir -p $SNAPCRAFT_STAGE/usr/bin
+      cp cups-config $SNAPCRAFT_STAGE/usr/bin/
+      #snapcraftctl build
     build-packages:
-        - patch
-        - gettext
-        - autoconf
-        - automake
-        - libtool
-        - autotools-dev
-        - pkg-config
-        - libavahi-client-dev
-        - libavahi-common-dev
-        - libavahi-compat-libdnssd-dev
-        - libdbus-1-dev
-        - libfontconfig1-dev
-        - libfreetype6-dev
-        - libgnutls28-dev
-        - libjpeg-dev
-        - libldap2-dev
-        - libkrb5-dev
-        - libpam0g-dev
-        - libpaper-dev
-        - libpng-dev
+      - patch
+      - gettext
+      - autoconf
+      - automake
+      - libtool
+      - autotools-dev
+      - pkg-config
+      - libavahi-client-dev
+      - libavahi-common-dev
+      - libavahi-compat-libdnssd-dev
+      - libdbus-1-dev
+      - libfontconfig1-dev
+      - libfreetype6-dev
+      - libgnutls28-dev
+      - libjpeg-dev
+      - libldap2-dev
+      - libkrb5-dev
+      - libpam0g-dev
+      - libpaper-dev
+      - libpng-dev
     stage-packages:
-        - libavahi-common3
-        - libavahi-client3
-        - libicu60
-        - libjson-glib-1.0-0
-        - libsoup2.4-1
-        - libxml2
+      - libavahi-common3
+      - libavahi-client3
+      - libicu66
+      - libjson-glib-1.0-0
+      - libsoup2.4-1
+      - libxml2
     prime:
-        - -etc/fonts
-        - -var
-        - -usr/include
-        - -usr/lib/pkgconfig
-        - -usr/share/fonts
-        - -usr/share/man
-        - -usr/share/doc
-        - -usr/share/doc-base
-        - -usr/share/lintian
-        - usr/lib
-        - usr/lib/libcups.so.2
-        - usr/lib/libcupsimage.so.2
+      - -etc/fonts
+      - -var
+      - -usr/include
+      - -usr/lib/pkgconfig
+      - -usr/share/fonts
+      - -usr/share/man
+      - -usr/share/doc
+      - -usr/share/doc-base
+      - -usr/share/lintian
+      - usr/lib
+      - usr/lib/libcups.so.2
+      - usr/lib/libcupsimage.so.2
 
   cups-filters:
     source: https://github.com/OpenPrinting/cups-filters
     source-type: git
     plugin: autotools
     override-build: |
-        set -eux
-        ./autogen.sh
-        ./configure --disable-avahi --disable-ldap --disable-foomatic --disable-braille --disable-mutool --without-rcdir --with-pdftops-path=/snap/cups/current/usr/bin/pdftops
-        make libppd.la
-        make libcupsfilters.la
-        mkdir -p $SNAPCRAFT_STAGE/usr/lib
-        cp .libs/* $SNAPCRAFT_STAGE/usr/lib/
-        mkdir -p $SNAPCRAFT_STAGE/usr/include/ppd
-        cp ppd/*.h $SNAPCRAFT_STAGE/usr/include/ppd/
-        mkdir -p $SNAPCRAFT_STAGE/usr/include/cupsfilters
-        cp cupsfilters/*.h $SNAPCRAFT_STAGE/usr/include/cupsfilters/
-        mkdir -p $SNAPCRAFT_STAGE/usr/lib/pkgconfig
-        cp *.pc $SNAPCRAFT_STAGE/usr/lib/pkgconfig/
-        #snapcraftctl build
-    configflags:
-        - --disable-avahi
-        - --disable-ldap
-        - --disable-foomatic
-        - --disable-braille
-        - --disable-mutool
-        - --without-rcdir
-        - --with-pdftops-path=/snap/cups/current/usr/bin/pdftops
+      set -eux
+      ./autogen.sh
+      ./configure --disable-avahi --disable-ldap --disable-foomatic --disable-braille --disable-mutool --without-rcdir --with-pdftops-path=/snap/cups/current/usr/bin/pdftops
+      make libppd.la
+      make libcupsfilters.la
+      mkdir -p $SNAPCRAFT_STAGE/usr/lib
+      cp .libs/* $SNAPCRAFT_STAGE/usr/lib/
+      mkdir -p $SNAPCRAFT_STAGE/usr/include/ppd
+      cp ppd/*.h $SNAPCRAFT_STAGE/usr/include/ppd/
+      mkdir -p $SNAPCRAFT_STAGE/usr/include/cupsfilters
+      cp cupsfilters/*.h $SNAPCRAFT_STAGE/usr/include/cupsfilters/
+      mkdir -p $SNAPCRAFT_STAGE/usr/lib/pkgconfig
+      cp *.pc $SNAPCRAFT_STAGE/usr/lib/pkgconfig/
+      #snapcraftctl build
     build-packages:
-        - gettext
-        - autoconf
-        - automake
-        - autotools-dev
-        - pkg-config
-        - g++
-        - sharutils
-        - poppler-utils
-        - libglib2.0-dev
-        - liblcms2-dev
-        - libpoppler-cpp-dev
-        - libpng-dev
-        - libtiff5-dev
-        - zlib1g-dev
-        - libfontconfig1-dev
-        - libdbus-1-dev
-        - librsvg2-bin
+      - gettext
+      - autoconf
+      - automake
+      - autotools-dev
+      - pkg-config
+      - g++
+      - sharutils
+      - poppler-utils
+      - libglib2.0-dev
+      - liblcms2-dev
+      - libpoppler-cpp-dev
+      - libpng-dev
+      - libtiff5-dev
+      - zlib1g-dev
+      - libfontconfig1-dev
+      - libdbus-1-dev
+      - librsvg2-bin
     stage-packages:
-        - poppler-utils
-        - libpoppler-cpp0v5
-        - libjbig0
-        - liblcms2-2
-        - libtiff5
-        - libwebp6
+      - poppler-utils
+      - libpoppler-cpp0v5
+      - libjbig0
+      - liblcms2-2
+      - libtiff5
+      - libwebp6
     prime:
-        - -etc/fonts
-        - -var
-        - -usr/include
-        - -usr/lib/pkgconfig
-        - -usr/share/fonts
-        - -usr/share/man
-        - -usr/share/doc
-        - -usr/share/doc-base
-        - -usr/share/lintian
-        - usr/lib
-        - usr/lib/libcupsfilters.so.1
-        - usr/lib/libcupsfilters.so.1.0.0
-        - usr/lib/libppd.so.1
-        - usr/lib/libppd.so.1.0.0
-        - usr/bin/pdftops
+      - -etc/fonts
+      - -var
+      - -usr/include
+      - -usr/lib/pkgconfig
+      - -usr/share/fonts
+      - -usr/share/man
+      - -usr/share/doc
+      - -usr/share/doc-base
+      - -usr/share/lintian
+      - usr/lib
+      - usr/lib/libcupsfilters.so.1
+      - usr/lib/libcupsfilters.so.1.0.0
+      - usr/lib/libppd.so.1
+      - usr/lib/libppd.so.1.0.0
+      - usr/bin/pdftops
     after: [jpeglib, cups, qpdf, ghostscript]
 
   pyppd:
     source: https://github.com/OpenPrinting/pyppd
     source-type: git
     plugin: python
-    python-version: python3
+    #ython-version: python3
     override-prime: ""
 
   foomatic-db:
@@ -259,30 +276,30 @@ parts:
     source-type: git
     plugin: nil
     override-build: |
-        set -eux
-        rm -rf db/source/PPD/*/PDF
-        rm -rf db/source/PPD/*/PXL
-        rm -rf db/source/PPD/*/PCL5
-        find db/source/PPD -executable -type f -print0 | xargs -0 chmod -x || :
-        find db/source/PPD -type f \! -name '*.ppd' -print0 | xargs -0 rm || :
-        for f in `find db/source/PPD -name '*.ppd'`; do perl -p -i -e 's/^\*CloseUI(\s+)/*CloseUI:\1/' $f; perl -p -i -e 's/\*1284DeviceId/*1284DeviceID/' $f; perl -p -i -e 's/\*(cupsFilter2?:)/\*%\1/' $f; done
-        $SNAPCRAFT_STAGE/bin/pyppd -vv -o ../install/foomatic-ps-ppds db/source/PPD
-        snapcraftctl build
+      set -eux
+      rm -rf db/source/PPD/*/PDF
+      rm -rf db/source/PPD/*/PXL
+      rm -rf db/source/PPD/*/PCL5
+      find db/source/PPD -executable -type f -print0 | xargs -0 chmod -x || :
+      find db/source/PPD -type f \! -name '*.ppd' -print0 | xargs -0 rm || :
+      for f in `find db/source/PPD -name '*.ppd'`; do perl -p -i -e 's/^\*CloseUI(\s+)/*CloseUI:\1/' $f; perl -p -i -e 's/\*1284DeviceId/*1284DeviceID/' $f; perl -p -i -e 's/\*(cupsFilter2?:)/\*%\1/' $f; done
+      $SNAPCRAFT_STAGE/bin/pyppd -vv -o ../install/foomatic-ps-ppds db/source/PPD
+      snapcraftctl build
     build-packages:
-        - perl-base
-        - python3
-        - xz-utils
+      - perl-base
+      - python3
+      - xz-utils
     stage-packages:
-        - python3
-        - xz-utils
+      - python3
+      - xz-utils
     organize:
-        foomatic-ps-ppds: usr/share/ppd/foomatic-ps-ppds
+      foomatic-ps-ppds: usr/share/ppd/foomatic-ps-ppds
     stage:
-        - usr/bin
-        - usr/share/ppd
+      - usr/bin
+      - usr/share/ppd
     prime:
-        - usr/bin
-        - usr/share/ppd
+      - usr/bin
+      - usr/share/ppd
     after: [pyppd]
 
   hplip:
@@ -290,32 +307,34 @@ parts:
     source-type: git
     plugin: nil
     override-build: |
-        set -eux
-        find prnt/ps -executable -type f -print0 | xargs -0 chmod -x || :
-        find prnt/ps -type f \! -name '*.ppd' -print0 | xargs -0 rm || :
-        for f in `find prnt/ps -name '*.ppd'`; do perl -p -i -e 's/^\*CloseUI(\s+)/*CloseUI:\1/' $f; perl -p -i -e 's/\*1284DeviceId/*1284DeviceID/' $f; perl -p -i -e 's/\*(cupsFilter2?:)/\*%\1/' $f; done
-        $SNAPCRAFT_STAGE/bin/pyppd -vv -o ../install/hplip-ps-ppds prnt/ps
-        snapcraftctl build
+      set -eux
+      find prnt/ps -executable -type f -print0 | xargs -0 chmod -x || :
+      find prnt/ps -type f \! -name '*.ppd' -print0 | xargs -0 rm || :
+      for f in `find prnt/ps -name '*.ppd'`; do perl -p -i -e 's/^\*CloseUI(\s+)/*CloseUI:\1/' $f; perl -p -i -e 's/\*1284DeviceId/*1284DeviceID/' $f; perl -p -i -e 's/\*(cupsFilter2?:)/\*%\1/' $f; done
+      $SNAPCRAFT_STAGE/bin/pyppd -vv -o ../install/hplip-ps-ppds prnt/ps
+      snapcraftctl build
     build-packages:
-        - perl-base
-        - python3
-        - xz-utils
+      - perl-base
+      - python3
+      - xz-utils
     stage-packages:
-        - python3
-        - xz-utils
+      - python3
+      - xz-utils
     organize:
-        hplip-ps-ppds: usr/share/ppd/hplip-ps-ppds
+      hplip-ps-ppds: usr/share/ppd/hplip-ps-ppds
     stage:
-        - usr/bin
-        - usr/share/ppd
+      - usr/bin
+      - usr/share/ppd
     prime:
-        - usr/bin
-        - usr/share/ppd
+      - usr/bin
+      - usr/share/ppd
     after: [pyppd]
 
   ps-printer-app:
     plugin: make
     source: .
+    make-parameters:
+      - LDFLAGS="$LDFLAGS -ljpeg"
     after: [pappl, cups-filters, foomatic-db, hplip]
 
   scripts:
