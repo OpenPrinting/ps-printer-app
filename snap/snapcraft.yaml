@@ -74,6 +74,7 @@ parts:
       - libusb-1.0-0
     prime:
       - -etc/fonts
+      - -lib
       - -var
       - -usr/include
       - -usr/lib/pkgconfig
@@ -83,8 +84,6 @@ parts:
       - -usr/share/doc-base
       - -usr/share/lintian
       - -snap
-      - lib
-      - usr/lib
       - usr/lib/libpappl.so.1
     after: [jpeglib]
 
@@ -101,7 +100,7 @@ parts:
     prime:
       - -etc/fonts
       - -var
-      - -include
+      - -usr/include
       - -share/man
       - -share/doc
       - -share/lintian
@@ -110,7 +109,9 @@ parts:
       - -usr/share/doc
       - -usr/share/doc-base
       - -usr/share/lintian
-      - -lib/libqpdf.a
+      - -usr/lib/libqpdf.a
+      - -usr/lib/libqpdf.la
+      - -usr/lib/pkgconfig
 
   ghostscript:
     source: https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs9540/ghostscript-9.54.0.tar.gz
@@ -244,6 +245,10 @@ parts:
       - libpoppler-cpp0v5
       - libjbig0
       - liblcms2-2
+      - libnspr4
+      - libnss3
+      - libopenjp2-7
+      - libpoppler97
       - libtiff5
       - libwebp6
     prime:
@@ -258,9 +263,9 @@ parts:
       - -usr/share/lintian
       - usr/lib
       - usr/lib/libcupsfilters.so.1
-      - usr/lib/libcupsfilters.so.1.0.0
+      - -usr/lib/libcupsfilters.so.1.0.0
       - usr/lib/libppd.so.1
-      - usr/lib/libppd.so.1.0.0
+      - -usr/lib/libppd.so.1.0.0
       - usr/bin/pdftops
     after: [jpeglib, cups, qpdf, ghostscript]
 
@@ -334,6 +339,16 @@ parts:
     source: .
     make-parameters:
       - LDFLAGS="$LDFLAGS -ljpeg"
+    build-packages:
+      - libusb-1.0-0-dev
+    stage-packages:
+      - libusb-1.0-0
+      - libjbig0
+      - liblcms2-2
+      - libtiff5
+      - libwebp6
+    prime:
+      - -usr/share/man
     after: [pappl, cups-filters, foomatic-db, hplip]
 
   scripts:
