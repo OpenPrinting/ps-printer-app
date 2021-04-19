@@ -18,6 +18,14 @@ architectures:
   - build-on: arm64
   - build-on: armhf
 
+# Make resolution of ".local" host names (Zero-Conf/mDNS/DNS-SD)
+# working: Mirror nsswitch.conf with added mDNS look-up support into
+# /etc/nsswitch.conf
+# See: https://forum.snapcraft.io/t/how-can-i-lookup-host-name-from-snap-core-using-avahi-mdns/
+layout:
+  /etc/nsswitch.conf:
+    bind-file: $SNAP/etc/nsswitch.conf
+
 apps:
   ps-printer-app-server:
     command: scripts/run-ps-printer-app-server
@@ -350,6 +358,42 @@ parts:
     prime:
       - -usr/share/man
     after: [pappl, cups-filters, foomatic-db, hplip]
+
+  utils:
+    plugin: nil
+    stage-packages:
+      - perl-base
+    override-prime: ""
+
+  nsswitchconf:
+    # Make resolution of ".local" host names (Zero-Conf/mDNS/DNS-SD)
+    # working: Extract the original nsswitch.conf file from the libc-bin
+    # package and add "mdns4_minimal [NOTFOUND=return]" to its "hosts:"
+    # line
+    # See: https://forum.snapcraft.io/t/no-mdns-support-in-snaps-should-core-have-a-modified-nsswitch-conf/
+    plugin: nil
+    stage-packages:
+      - libc-bin
+    organize:
+      usr/share/libc-bin/nsswitch.conf: etc/nsswitch.conf
+    override-prime: |
+      set -eux
+      perl -p -i -e 's/^\s*hosts:(\s+)files/hosts:\1files mdns4_minimal [NOTFOUND=return]/' $SNAPCRAFT_STAGE/etc/nsswitch.conf
+      snapcraftctl prime
+    prime:
+      - etc/nsswitch.conf
+    after: [utils]
+
+  libnss-mdns:
+    # Make resolution of ".local" host names (Zero-Conf/mDNS/DNS-SD)
+    # working: Install the libnss-mdns libraries needed for mDNS host name
+    # look-up
+    # See: https://forum.snapcraft.io/t/no-mdns-support-in-snaps-should-core-have-a-modified-nsswitch-conf/
+    plugin: nil
+    stage-packages:
+      - libnss-mdns
+    prime:
+      - lib/x86_64-linux-gnu/libnss_mdns*
 
   scripts:
     plugin: dump
