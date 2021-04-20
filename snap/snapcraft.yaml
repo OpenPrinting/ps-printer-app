@@ -367,18 +367,13 @@ parts:
 
   nsswitchconf:
     # Make resolution of ".local" host names (Zero-Conf/mDNS/DNS-SD)
-    # working: Extract the original nsswitch.conf file from the libc-bin
-    # package and add "mdns4_minimal [NOTFOUND=return]" to its "hosts:"
-    # line
+    # working: Take the original nsswitch.conf file from the base
+    # Snap and add "mdns4_minimal [NOTFOUND=return]" to its "hosts:" line
     # See: https://forum.snapcraft.io/t/no-mdns-support-in-snaps-should-core-have-a-modified-nsswitch-conf/
     plugin: nil
-    stage-packages:
-      - libc-bin
-    organize:
-      usr/share/libc-bin/nsswitch.conf: etc/nsswitch.conf
     override-prime: |
       set -eux
-      perl -p -i -e 's/^\s*hosts:(\s+)files/hosts:\1files mdns4_minimal [NOTFOUND=return]/' $SNAPCRAFT_STAGE/etc/nsswitch.conf
+      perl -p -e 's/^\s*hosts:(\s+)files/hosts:\1files mdns4_minimal [NOTFOUND=return]/' /snap/core20/current/etc/nsswitch.conf > $SNAPCRAFT_STAGE/etc/nsswitch.conf
       snapcraftctl prime
     prime:
       - etc/nsswitch.conf
