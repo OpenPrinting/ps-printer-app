@@ -359,12 +359,6 @@ parts:
       - -usr/share/man
     after: [pappl, cups-filters, foomatic-db, hplip]
 
-  utils:
-    plugin: nil
-    stage-packages:
-      - perl-base
-    override-prime: ""
-
   nsswitchconf:
     # Make resolution of ".local" host names (Zero-Conf/mDNS/DNS-SD)
     # working: Take the original nsswitch.conf file from the base
@@ -373,11 +367,10 @@ parts:
     plugin: nil
     override-prime: |
       set -eux
-      perl -p -e 's/^\s*hosts:(\s+)files/hosts:\1files mdns4_minimal [NOTFOUND=return]/' /snap/core20/current/etc/nsswitch.conf > $SNAPCRAFT_STAGE/etc/nsswitch.conf
+      sed -Ee 's/^\s*hosts:(\s+)files/hosts:\1files mdns4_minimal \[NOTFOUND=return\]/' /snap/core20/current/etc/nsswitch.conf > $SNAPCRAFT_STAGE/etc/nsswitch.conf
       snapcraftctl prime
     prime:
       - etc/nsswitch.conf
-    after: [utils]
 
   libnss-mdns:
     # Make resolution of ".local" host names (Zero-Conf/mDNS/DNS-SD)
@@ -388,7 +381,7 @@ parts:
     stage-packages:
       - libnss-mdns
     prime:
-      - lib/x86_64-linux-gnu/libnss_mdns*
+      - lib/x86_64-linux-gnu/libnss_mdns4_minimal*
 
   scripts:
     plugin: dump
