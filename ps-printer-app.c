@@ -148,6 +148,7 @@ static void   ps_driver_delete(pappl_printer_t *printer,
 bool          ps_str_has_code(const char *str);
 bool          ps_option_has_code(pappl_system_t *system, ppd_file_t *ppd,
 				 ppd_option_t *option);
+static const char *ps_default_paper_size();
 static bool   ps_driver_setup(pappl_system_t *system, const char *driver_name,
 			      const char *device_uri, const char *device_id,
 			      pappl_pr_driver_data_t *driver_data,
@@ -1027,6 +1028,54 @@ ps_option_has_code(
 
 
 //
+// 'ps_default_paper_size()' - Determine default paper size
+//                             (A4/Letter) based on the location,
+//                             Letter for US and Canada, A4 for the
+//                             rest of the world. Use the locale
+//                             environment variables ("LC_...") for
+//                             that.
+//
+
+static const char *ps_default_paper_size()
+{
+  static char result[128];            // Resulting default paper size
+  char        *val;                   // Paper size/locale value
+  int         i;
+  const char  * const lc_env_vars[] = // Environment variables with suitable
+  {                                   // locale information
+    "LC_PAPER",
+    "LC_CTYPE",
+    "LC_ALL",
+    "LANG",
+  };
+
+
+  memset(result, 0, sizeof(result));
+  for (i = 0; i < sizeof(lc_env_vars) / sizeof(lc_env_vars[0]); i ++)
+  {
+    if ((val = getenv(lc_env_vars[i])) == NULL)
+      continue;
+    if (!strcmp(val, "C") ||
+	!strcmp(val, "POSIX"))
+      continue;
+    if (!strcmp(val, "en") ||
+	!strncmp(val, "en.", 3) ||
+	!strncmp(val, "en_US", 5) ||
+	!strncmp(val, "en_CA", 5) ||
+	!strncmp(val, "fr_CA", 5))
+      // These are the only locales that will default to "Letter" size...
+      strcpy(result, "Letter");
+    else
+      // Rest of the world is A4
+      strcpy(result, "A4");
+    if (result[0])
+      break;
+  }
+  return (result[0] ? result : NULL);
+}
+
+
+//
 // 'ps_driver_setup()' - PostScript driver setup callback.
 //
 //                       Runs in two modes: Init and Update
@@ -1603,7 +1652,25 @@ ps_driver_setup(
   driver_data->borderless = false;
   count = pc->num_sizes;
   if (!update)
-    choice = ppdFindMarkedChoice(ppd, "PageSize");
+  {
+    // If we can determine a default page size (Letter/A4) depending
+    // on the user's location via ps_default_paper_size() and there is
+    // either no default page size set or the default page size is A4
+    // or Letter, we correct the default to the page size of the
+    // user's location, but only if it is actually available in the
+    // PPD. Otherwise we take the default page size from the PPD file.
+    // Most PPDs have Letter as default but most places on the world
+    // use A4, so this switches the deafult to A4 in most cases.  This
+    // affects only new print queues or newly added media sources.
+    const char *val;
+    if ((val = ps_default_paper_size()) == NULL ||
+	(option = ppdFindOption(ppd, "PageSize")) == NULL ||
+	((choice = ppdFindMarkedChoice(ppd, "PageSize")) != NULL &&
+	 strcasecmp(choice->choice, "Letter") &&
+	 strcasecmp(choice->choice, "A4")) ||
+	(choice = ppdFindChoice(option, val)) == NULL)
+      choice = ppdFindMarkedChoice(ppd, "PageSize");
+  }
   else
     for (i = 0; i < driver_data->num_media; i ++)
       free((char *)(driver_data->media[i]));
