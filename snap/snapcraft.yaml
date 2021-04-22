@@ -36,6 +36,13 @@ apps:
     plugs: [avahi-control, home, network, network-bind, raw-usb]
 
 parts:
+  patches:
+    plugin: dump
+    source: snap/local/
+    organize:
+      '*.patch' : patches/
+    override-prime: ""
+
   jpeglib:
     plugin: autotools
     source: https://www.ijg.org/files/jpegsrc.v9d.tar.gz
@@ -60,6 +67,10 @@ parts:
     source: https://github.com/michaelrsweet/pappl
     source-type: git
     plugin: autotools
+    override-build: |
+      set -eux
+      patch -p1 < $SNAPCRAFT_STAGE/patches/pappl-refresh-media-default-when-changing-media-ready.patch
+      snapcraftctl build
     autotools-configure-parameters:
       - --prefix=/usr
       - --with-papplstatedir=/var/snap/ps-printer-app/common
@@ -93,7 +104,7 @@ parts:
       - -usr/share/lintian
       - -snap
       - usr/lib/libpappl.so.1
-    after: [jpeglib]
+    after: [patches, jpeglib]
 
   qpdf:
     source: https://github.com/qpdf/qpdf/releases/download/release-qpdf-10.3.1/qpdf-10.3.1.tar.gz
