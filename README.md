@@ -22,8 +22,8 @@ requests](https://github.com/OpenPrinting/ps-printer-app).
 
 - A Printer Application which uses the new filter functions of
   cups-filters 2.x. Filter functions are library functions derived
-  from cups-filters and contain decades of development and refinement
-  starting from the introduction of CUPS in 2000.
+  from the CUPS filters and contain decades of development and
+  refinement starting from the introduction of CUPS in 2000.
 
 - A retro-fit Printer Application for classic CUPS drivers, in this
   case the simplest form of only PPD files for PostScript printers. It
@@ -40,6 +40,11 @@ requests](https://github.com/OpenPrinting/ps-printer-app).
   "application/vnd.printer-specific" which does not exist as input
   format, so "application/postscript" input is forced through the
   pstops() filter function.
+
+- An expandable Printer Application: The user can add PPD files via the
+  administration web interface to support additional printer models.
+
+Further properties are:
 
 - To do not need to re-invent the code for forking into sub-processes
   so that we can pass data through a sequence of filters, we create a
@@ -94,9 +99,6 @@ requests](https://github.com/OpenPrinting/ps-printer-app).
   These queries are supported by the web interface of the Printer
   Application.
 
-- An expandable Printer Application: The user can add PPD files via the
-  administration web interface to support additional printer models.
-
 
 ### Remark
 
@@ -108,9 +110,10 @@ requests](https://github.com/OpenPrinting/ps-printer-app).
 
 ### To Do
 
-- Add printer auto-setup for all supported printers (Needs support by
-  PAPPL: [Pull Request #36: Add device
-  auto-setup](https://github.com/michaelrsweet/pappl/pull/36))
+- On the "Add PPD files" page in the list of already added user PPD
+  files mark which ones are actually used by a printer which got set
+  up in the Printer Application, to avoid that the user removes these
+  files.
 
 - Human-readable strings for vendor options (Needs support by PAPPL:
   [Issue #58: Localization
@@ -120,7 +123,7 @@ requests](https://github.com/OpenPrinting/ps-printer-app).
   #58: Localization
   support](https://github.com/michaelrsweet/pappl/issues/58))
 
-- Ink level check via ps_status() function (Needs support by PAPPL:
+- SNMP Ink level check via ps_status() function (Needs support by PAPPL:
   [Issue #83: CUPS does IPP and SNMP ink level polls via backends,
   PAPPL should have functions for
   this](https://github.com/michaelrsweet/pappl/issues/83))
@@ -135,9 +138,6 @@ requests](https://github.com/OpenPrinting/ps-printer-app).
 
 - Better way to download HPLIP for grabbing the PostScript PPD files
   for HP printers
-
-- Auto-connection of Snap interfaces raw-usb and avahi-control:
-  [Request](https://forum.snapcraft.io/t/request-postscript-printer-application-snap-ps-printer-app-auto-connection-to-avahi-control-raw-usb-interfaces/)
 
 
 ## THE SNAP
@@ -171,7 +171,7 @@ building Snaps, see [this discussion on the Snapcraft
 forum](https://forum.snapcraft.io/t/build-fails-with-a-mksquashfs-error-cannot-pack-root-prime/). The
 problem is already solved but did not make it into Groovy yet.
 
-Any older Ubuntu version (like 20.04) should work.
+Any older (like 20.04) or newer (like 21.04) Ubuntu version should work.
 
 To install the resulting Snap run
 
@@ -270,7 +270,7 @@ In the directory with the attached ps-printer-app.c run the command
 line
 
 ```
-gcc -o ps-printer-app ps-printer-app.c $PAPPL_SRC/pappl/libpappl.a $CUPS_FILTERS_SRC/.libs/libppd.a $CUPS_FILTERS_SRC/.libs/libcupsfilters.a -ldl -lpthread  -lppd -lcups -lavahi-common -lavahi-client -lgnutls -ljpeg -lpng16 -ltiff -lz -lm -lusb-1.0 -lpam -lqpdf -lstdc++ -I. -I$PAPPL_SRC/pappl -I$CUPS_FILTERS_SRC/ppd -I$CUPS_FILTERS_SRC/cupsfilters
+gcc -o ps-printer-app ps-printer-app.c $PAPPL_SRC/pappl/libpappl.a $CUPS_FILTERS_SRC/.libs/libppd.a $CUPS_FILTERS_SRC/.libs/libcupsfilters.a -ldl -lpthread  -lppd -lcups -lavahi-common -lavahi-client -lgnutls -ljpeg -lpng16 -ltiff -lz -lm -lusb-1.0 -lpam -lqpdf -lstdc++ -I. -I$PAPPL_SRC/pappl -I$CUPS_FILTERS_SRC/ppd -I$CUPS_FILTERS_SRC/cupsfilters -L$CUPS_FILTERS_SRC/.libs/
 ```
 
 There is also a Makefile, but this needs PAPPL and cups-filters 2.x to be installed into your system.
