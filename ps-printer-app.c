@@ -54,6 +54,10 @@ typedef struct ps_driver_extension_s	// Driver data extension
              installable_pollable,      // "Installable Options" pollable?
              updated;                   // Is the driver data updated for
                                         // "Installable Options" changes?
+  char       *cups_filter_ps;           // CUPS filter for PostScript input
+                                        // as defined by "*cupsFilter(s):" line
+  char       *temp_ppd_name;            // File name of temporary copy of the
+                                        // PPD file to be used by CUPS filters
 } ps_driver_extension_t;
 
 typedef struct ps_filter_data_s		// Filter data
@@ -65,8 +69,17 @@ typedef struct ps_filter_data_s		// Filter data
 typedef struct ps_job_data_s		// Job data
 {
   ppd_file_t            *ppd;           // PPD file loaded from collection
+  char                  *cups_filter_ps;// CUPS filter in PPD file
+  char                  *temp_ppd_name; // File name of temporary copy of the
+                                        // PPD file to be used by CUPS filters
+  filter_data_t         *filter_data;   // Common print job data for filter
+                                        // functions
   int		        num_options;    // Number of PPD print options
   cups_option_t	        *options;       // PPD print options
+  cups_array_t          *chain;         // Filter function chain
+  filter_filter_in_chain_t *filter,     // Filter function call for filtering
+                        *ppd_filter,    // Filter from PPD file
+                        *print;         // Filter function call for printing
   int                   device_fd;      // File descriptor to pipe output
                                         // to the device
   int                   device_pid;     // Process ID for device output
@@ -97,6 +110,7 @@ typedef struct ps_job_data_s		// Job data
 #define SYSTEM_STATE_DIR "/var/lib/" SYSTEM_PACKAGE_NAME
 #define SYSTEM_SPOOL_DIR "/var/spool/" SYSTEM_PACKAGE_NAME
 #define SYSTEM_DATA_DIR "/usr/share/" SYSTEM_PACKAGE_NAME
+#define SYSTEM_EXEC_DIR "/usr/lib/" SYSTEM_PACKAGE_NAME
 
 // State file
 
@@ -116,6 +130,11 @@ static const char * const col_paths[] =   // PPD collection dirs
  SYSTEM_STATE_DIR "/ppd"
 };
 
+// Filter dir
+
+#define FILTERDIR SYSTEM_EXEC_DIR "/filter"
+
+
 static  int               num_drivers = 0; // Number of drivers (from the PPDs)
 static  pappl_pr_driver_t *drivers = NULL; // Driver index (for menu and
                                            // auto-add)
@@ -130,6 +149,9 @@ static  char              state_file[1024];// State file, customizable via
                                            // STATE_FILE environment variable
 static  char              spool_dir[1024]; // Spool directory, customizable via
                                            // SPOOL_DIR environment variable
+static  char              filter_dir[1024]; // Filter directory, customizable
+                                           // via FILTER_DIR environment
+                                           // variable
 
 
 //
@@ -145,6 +167,9 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
 					 pappl_pr_options_t *job_options);
 static void   ps_driver_delete(pappl_printer_t *printer,
 			       pappl_pr_driver_data_t *driver_data);
+static char   *ps_cups_filter_path(const char *filter);
+static char   *ps_ppd_find_cups_filter(const char *input_format,
+				       int num_filters, char **filters);
 bool          ps_str_has_code(const char *str);
 bool          ps_option_has_code(pappl_system_t *system, ppd_file_t *ppd,
 				 ppd_option_t *option);
@@ -530,6 +555,7 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
   ppd_attr_t            *ppd_attr;
   pwg_map_t             *pwg_map;
   char                  *ptr;
+  filter_data_t         *filter_data;
   pappl_printer_t       *printer = papplJobGetPrinter(job);
 
   //
@@ -543,6 +569,15 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
   extension = (ps_driver_extension_t *)driver_data.extension;
   job_data->ppd = extension->ppd;
   pc = job_data->ppd->cache;
+  job_data->cups_filter_ps = extension->cups_filter_ps;
+  job_data->temp_ppd_name = extension->temp_ppd_name;
+  if (job_data->cups_filter_ps)
+    papplLogJob(job, PAPPL_LOGLEVEL_DEBUG,
+		"Using CUPS filter for post-processing PostScript: %s",
+		job_data->cups_filter_ps);
+  else
+    papplLogJob(job, PAPPL_LOGLEVEL_DEBUG,
+		"Not using any CUPS filter for post-processing the PostScript");
 
   driver_attrs = papplPrinterGetDriverAttributes(printer);
 
@@ -898,6 +933,29 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
   // Clean up
   ippDelete(driver_attrs);
 
+  // Prepare job data to be supplied to filter functions/CUPS filters
+  // called during job execution
+  filter_data = (filter_data_t *)calloc(1, sizeof(filter_data_t));
+  job_data->filter_data = filter_data;
+  filter_data->printer = strdup(papplPrinterGetName(printer));
+  filter_data->job_id = papplJobGetID(job);
+  filter_data->job_user = strdup(papplJobGetUsername(job));
+  filter_data->job_title = strdup(papplJobGetName(job));
+  filter_data->copies = job_options->copies;
+  filter_data->job_attrs = NULL;     // We use PPD/filter options
+  filter_data->printer_attrs = NULL; // We use the printer's PPD file
+  filter_data->num_options = job_data->num_options;
+  filter_data->options = job_data->options; // PPD/filter options
+  filter_data->ppdfile = job_data->temp_ppd_name;
+  filter_data->ppd = job_data->ppd;
+  filter_data->logfunc = ps_job_log; // Job log function catching page counts
+                                    // ("PAGE: XX YY" messages)
+  filter_data->logdata = job;
+  filter_data->iscanceledfunc = ps_job_is_canceled; // Function to indicate
+                                                   // whether the job got
+                                                   // canceled
+  filter_data->iscanceleddata = job;
+
   return (job_data);
 }
 
@@ -955,13 +1013,144 @@ ps_driver_delete(
   }
 
   // Extension
+  if (extension->cups_filter_ps)
+  {
+    free(extension->cups_filter_ps);
+    if (extension->temp_ppd_name)
+    {
+      unlink(extension->temp_ppd_name);
+      free(extension->temp_ppd_name);
+    }
+  }
   free(extension);
 }
 
 
 //
-// 'ps_has_code()' - Check a string whether it contains active PostScript
-//                   or PJL code and not only whitespace and comments
+// 'ps_cups_filter_path()' - Check whether a CUPS filter is present
+//                           and if so return its absolute path,
+//                           otherwise NULL
+//
+
+static char *                           // O - Executable path of filter,
+                                        //     NULL if filter not found or
+                                        //     not executable
+ps_cups_filter_path(const char *filter) // I - CUPS filter name 
+{
+  char		*filter_path;      /* Path to filter executable */
+
+  if (!filter || !filter[0] || !filter_dir[0])
+    return (NULL);
+
+  if (filter[0] == '/')
+  {
+    if ((filter_path = (char *)calloc(strlen(filter) + 1,
+				      sizeof(char))) == NULL)
+      return (NULL);
+    snprintf(filter_path, (strlen(filter) + 1) * sizeof(char), "%s", filter);
+  }
+  else
+  {
+    if ((filter_path = (char *)calloc(strlen(filter_dir) + strlen(filter) + 2,
+				    sizeof(char))) == NULL)
+      return (NULL);
+    snprintf(filter_path, (strlen(filter_dir) + strlen(filter) + 2) *
+	     sizeof(filter_path), "%s/%s", filter_dir, filter);
+  }
+
+  if (access(filter_path, X_OK) == 0)
+    return (filter_path);
+
+  free(filter_path);
+  return (NULL);
+}
+
+
+//
+// 'ps_ppd_find_cups_filter()' - Check the strings of the
+//                               "*cupsFilter(2):" lines in a PPD file
+//                               whether there is a suitable filter
+//                               applying to a given input
+//                               format. Return the path to call the
+//                               filter or NULL if there is no
+//                               suitable one.
+//
+
+static char *                           // O - Executable path of filter,
+                                        //     NULL if filter not found or
+                                        //     not executable
+ps_ppd_find_cups_filter(const char *input_format, // I - Input data format
+			int num_filters,          // I - Number of filter
+			                          //     entries in PPD
+			char **filters)           // I - Pointer to PPD's
+                                                  //     filter list entries
+{
+  int i,
+      cost,
+      lowest_cost = 9999999;
+  char *filter_str,
+       *filter_name,
+       *filter_cost,
+       *filter_path = NULL,
+       *filter_selected = NULL;
+
+  for (i = 0, filter_str = *filters; i < num_filters; i++, filter_str ++)
+  {
+    // First word of the filter entry string is the input format of the filter
+    if (strncmp(filter_str, input_format, strlen(input_format)) == 0 &&
+	isspace(filter_str[strlen(input_format)]))
+    {
+      // This filter takes the desired input data format
+
+      // The name of the filter executable is the last word
+      filter_name = filter_str + strlen(filter_str) - 1;
+      while (!isspace(*filter_name) && filter_name > filter_str)
+	filter_name --;
+      if (filter_name == filter_str)
+	continue;
+
+      // The cost value of the filter is the second last word
+      filter_cost = filter_name;
+      filter_name ++;
+      while (isspace(*filter_cost) && filter_cost > filter_str)
+	filter_cost --;
+      while (!isspace(*filter_cost) && filter_cost > filter_str)
+	filter_cost --;
+      if (filter_cost == filter_str)
+	continue;
+      filter_cost ++;
+      if (!isdigit(*filter_cost))
+	continue;
+      cost = atoi(filter_cost);
+
+      // Is the filter installed?
+      if (strcmp(filter_name, "-") == 0 ||
+	  (filter_path = ps_cups_filter_path(filter_name)) == NULL)
+	continue;
+
+      // If there is more than one suitable filter entry, take the one with
+      // the lowest cost value
+      if (cost < lowest_cost)
+      {
+	if (filter_selected)
+	  free(filter_selected);
+	filter_selected = filter_path;
+	lowest_cost = cost;
+	if (cost == 0)
+	  break;
+      }
+      else
+	free(filter_path);
+    }
+  }
+
+  return (filter_selected);
+}
+
+
+//
+// 'ps_str_has_code()' - Check a string whether it contains active PostScript
+//                       or PJL code and not only whitespace and comments
 //
 
 bool
@@ -1123,6 +1312,10 @@ ps_driver_setup(
                search_ppd_path;
   ppd_file_t   *ppd = NULL;		   // PPD file loaded from collection
   ppd_cache_t  *pc;
+  cups_file_t  *tempfp;
+  int          tempfd,
+               bytes;
+  char         tempfile[1024];
   ipp_attribute_t *attr;
   int          num_options;
   cups_option_t *options,
@@ -1273,6 +1466,8 @@ ps_driver_setup(
     extension->installable_options  = false;
     extension->installable_pollable = false;
     extension->updated              = false;
+    extension->cups_filter_ps       = NULL;
+    extension->temp_ppd_name        = NULL;
     driver_data->delete_cb          = ps_driver_delete;
     driver_data->identify_cb        = ps_identify;
     driver_data->identify_default   = PAPPL_IDENTIFY_ACTIONS_SOUND;
@@ -1293,6 +1488,45 @@ ps_driver_setup(
     strncpy(driver_data->make_and_model,
 	    ppd->nickname,
 	    sizeof(driver_data->make_and_model));
+
+    // Does the PPD file have "*cupsFilter(2): ..." lines? If so, there
+    // could some enhanced functionality working with a filter.
+    //
+    // Check whether the filter is installed and note its execution path.
+    // If we have a filter we will also accept options and choices without
+    // PostScript or JCL code as these are most probably handled by the
+    // filter.
+    extension->cups_filter_ps =
+      ps_ppd_find_cups_filter("application/vnd.cups-postscript",
+			      ppd->num_filters, ppd->filters);
+    if (extension->cups_filter_ps)
+    {
+      papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	       "CUPS filter to be applied to the PostScript output: %s",
+	       extension->cups_filter_ps);
+      // Create a physical copy of the PPD file in a temporary file so that
+      // the CUPS filter can read it.
+      tempfp = ppdCollectionGetPPD(ppd_path->ppd_path, NULL,
+				   (filter_logfunc_t)papplLog,
+				   system);
+      if ((tempfd = cupsTempFd(tempfile, sizeof(tempfile))) >= 0)
+      {
+	papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+		 "Creating physical PPD file for the CUPS filter: %s",
+		 tempfile);
+	while ((bytes = cupsFileRead(tempfp, buf, sizeof(buf))) > 0)
+	  bytes = write(tempfd, buf, bytes);
+	cupsFileClose(tempfp);
+	close(tempfd);
+	extension->temp_ppd_name = strdup(tempfile);
+      }
+      else
+	papplLog(system, PAPPL_LOGLEVEL_WARN,
+		 "Unable to create physical PPD file for the CUPS filter, filter may not work correctly.");
+    }
+    else
+      papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+	       "No CUPS filter to be applied to the PostScript output");
 
     // We are in Init mode
     update = false;
@@ -1395,7 +1629,8 @@ ps_driver_setup(
   if (!update) driver_data->sides_default = PAPPL_SIDES_ONE_SIDED;
   if (pc->sides_option &&
       (option = ppdFindOption(ppd, pc->sides_option)) != NULL &&
-      ps_option_has_code(system, ppd, option))
+      (extension->cups_filter_ps ||
+       ps_option_has_code(system, ppd, option)))
   {
     if (pc->sides_2sided_long &&
 	!(update && ppdInstallableConflict(ppd, pc->sides_option,
@@ -1439,7 +1674,8 @@ ps_driver_setup(
       if (update && ppdInstallableConflict(ppd, opt->name, opt->value))
 	break;
       if ((option = ppdFindOption(ppd, opt->name)) == NULL ||
-	  !ps_option_has_code(system, ppd, option))
+	  (!extension->cups_filter_ps &&
+	   !ps_option_has_code(system, ppd, option)))
 	break;
     }
     if (i > 0)
@@ -1456,7 +1692,8 @@ ps_driver_setup(
   driver_data->num_resolution = 0;
   if ((option = ppdFindOption(ppd, "Resolution")) != NULL &&
       (count = option->num_choices) > 0 &&
-      ps_option_has_code(system, ppd, option))
+      (extension->cups_filter_ps ||
+       ps_option_has_code(system, ppd, option)))
   {
     // Valid "Resolution" option, make a sorted list of resolutions.
     if (update)
@@ -1640,7 +1877,8 @@ ps_driver_setup(
 
   // Media size, margins
   if ((option = ppdFindOption(ppd, "PageSize")) == NULL ||
-      !ps_option_has_code(system, ppd, option))
+      (!extension->cups_filter_ps &&
+       !ps_option_has_code(system, ppd, option)))
   {
     papplLog(system, PAPPL_LOGLEVEL_ERROR,
 	     "PPD does not have a \"PageSize\" option or the option is "
@@ -1914,7 +2152,8 @@ ps_driver_setup(
   // Output bins
   if ((count = pc->num_bins) > 0 &&
       (option = ppdFindOption(ppd, "OutputBin")) != NULL &&
-      ps_option_has_code(system, ppd, option))
+      (extension->cups_filter_ps ||
+       ps_option_has_code(system, ppd, option)))
   {
     if (!update)
       choice = ppdFindMarkedChoice(ppd, "OutputBin");
@@ -2039,7 +2278,8 @@ ps_driver_setup(
 
       // Check whether there is not more than one at least all but one choice
       // without active PostScript or PJL code to inject into the job stream
-      if (!ps_option_has_code(system, ppd, option))
+      if (!extension->cups_filter_ps &&
+	  !ps_option_has_code(system, ppd, option))
 	continue;
 
       // Stop and warn if we have no slot for vendor attributes any more
@@ -2242,12 +2482,9 @@ ps_filter(
   int                   nullfd;         // File descriptor for /dev/null
   pappl_pr_options_t	*job_options;	// Job options
   bool			ret = false;	// Return value
-  filter_data_t         filter_data;    // Data for supplying to filter
-                                        // function
   char                  buf[1024];      // Buffer for building strings
-  cups_array_t          *chain;         // Filter function chain
-  filter_filter_in_chain_t *filter,     // Filter function call for filtering
-                           *print;      // Filter function call for printing
+  filter_external_cups_t* ppd_filter_params = NULL; // Parameters for CUPS
+                                        // filter defined in the PPD
   pappl_printer_t       *printer = papplJobGetPrinter(job);
 
   //
@@ -2271,44 +2508,34 @@ ps_filter(
   }
 
   //
-  // Create data record to call filter functions
-  //
-
-  filter_data.job_id = papplJobGetID(job);
-  filter_data.job_user = strdup(papplJobGetUsername(job));
-  filter_data.job_title = strdup(papplJobGetName(job));
-  filter_data.copies = job_options->copies;
-  filter_data.job_attrs = NULL;     // We use PPD/filter options
-  filter_data.printer_attrs = NULL; // We use the printer's PPD file
-  filter_data.num_options = job_data->num_options;
-  filter_data.options = job_data->options; // PPD/filter options
-  filter_data.ppdfile = NULL;
-  filter_data.ppd = job_data->ppd;
-  filter_data.logfunc = ps_job_log; // Job log function catching page counts
-                                    // ("PAGE: XX YY" messages)
-  filter_data.logdata = job;
-  filter_data.iscanceledfunc = ps_job_is_canceled; // Function to indicate
-                                                   // whether the job got
-                                                   // canceled
-  filter_data.iscanceleddata = job;
-
-  //
   // Set up filter function chain
   //
 
-  chain = cupsArrayNew(NULL, NULL);
-  filter =
+  job_data->chain = cupsArrayNew(NULL, NULL);
+  job_data->filter =
     (filter_filter_in_chain_t *)calloc(1, sizeof(filter_filter_in_chain_t));
-  filter->function = psfd->filter_function;
-  filter->parameters = psfd->filter_parameters;
-  filter->name = "Filtering";
-  cupsArrayAdd(chain, filter);
-  print =
+  job_data->filter->function = psfd->filter_function;
+  job_data->filter->parameters = psfd->filter_parameters;
+  job_data->filter->name = "Filtering";
+  cupsArrayAdd(job_data->chain, job_data->filter);
+  if (job_data->cups_filter_ps)
+  {
+    ppd_filter_params =
+      (filter_external_cups_t *)calloc(1, sizeof(filter_external_cups_t));
+    ppd_filter_params->filter = job_data->cups_filter_ps;
+    job_data->ppd_filter =
+      (filter_filter_in_chain_t *)calloc(1, sizeof(filter_filter_in_chain_t));
+    job_data->ppd_filter->function = filterExternalCUPS;
+    job_data->ppd_filter->parameters = ppd_filter_params;
+    job_data->ppd_filter->name = "Post-filtering";
+    cupsArrayAdd(job_data->chain, job_data->ppd_filter);
+  }
+  job_data->print =
     (filter_filter_in_chain_t *)calloc(1, sizeof(filter_filter_in_chain_t));
-  print->function = ps_print_filter_function;
-  print->parameters = device;
-  print->name = "Printing";
-  cupsArrayAdd(chain, print);
+  job_data->print->function = ps_print_filter_function;
+  job_data->print->parameters = device;
+  job_data->print->name = "Printing";
+  cupsArrayAdd(job_data->chain, job_data->print);
 
   //
   // Fire up the filter functions
@@ -2319,19 +2546,16 @@ ps_filter(
   // The filter chain has no output, data is going to the device
   nullfd = open("/dev/null", O_RDWR);
 
-  if (filterChain(fd, nullfd, 1, &filter_data, chain) == 0)
+  if (filterChain(fd, nullfd, 1, job_data->filter_data, job_data->chain) == 0)
     ret = true;
 
   //
   // Clean up
   //
 
+  if (ppd_filter_params)
+    free(ppd_filter_params);
   papplJobDeletePrintOptions(job_options);
-  free(filter_data.job_user);
-  free(filter_data.job_title);
-  free(filter);
-  free(print);
-  cupsArrayDelete(chain);
   ps_free_job_data(job_data);
   close(fd);
   close(nullfd);
@@ -2346,6 +2570,18 @@ ps_filter(
 
 static void   ps_free_job_data(ps_job_data_t *job_data)
 {
+  free(job_data->filter_data->printer);
+  free(job_data->filter_data->job_user);
+  free(job_data->filter_data->job_title);
+  free(job_data->filter_data);
+  if (job_data->filter)
+    free(job_data->filter);
+  if (job_data->ppd_filter)
+    free(job_data->ppd_filter);
+  if (job_data->print)
+    free(job_data->print);
+  if (job_data->chain)
+    cupsArrayDelete(job_data->chain);
   cupsFreeOptions(job_data->num_options, job_data->options);
   free(job_data);
 }
@@ -3797,7 +4033,6 @@ ps_rendjob(
 {
   ps_job_data_t *job_data;      // PPD data for job
   FILE *devout;
-  filter_data_t filter_data;
   int num_pages;
 
 
@@ -3819,13 +4054,12 @@ ps_rendjob(
   // Clean up
   //
 
-  filter_data.logfunc = ps_job_log;
-  filter_data.logdata = job;
-  filter_data.iscanceledfunc = ps_job_is_canceled;
-  filter_data.iscanceleddata = job;
   fclose(job_data->device_file);
-  filterPClose(job_data->device_fd, job_data->device_pid, &filter_data);
+  filterPClose(job_data->device_fd, job_data->device_pid,
+	       job_data->filter_data);
 
+  if (job_data->cups_filter_ps)
+    free(job_data->ppd_filter->parameters);
   ps_free_job_data(job_data);
   papplJobSetData(job, NULL);
 
@@ -3894,25 +4128,47 @@ ps_rstartjob(
   ps_job_data_t      *job_data;      // PPD data for job
   const char	     *job_name;
   int                nullfd;
-  filter_data_t      filter_data;
   FILE               *devout;
+  filter_external_cups_t* ppd_filter_params; // Parameters for CUPS
+                                     // filter defined in the PPD
 
-  // Log function for output to device
-  filter_data.logfunc = ps_job_log; // Job log function catching page counts
-                                    // ("PAGE: XX YY" messages)
-  filter_data.logdata = job;
-  // Function to indicate that the job got canceled
-  filter_data.iscanceledfunc = ps_job_is_canceled;
-  filter_data.iscanceleddata = job;
   // Load PPD file and determine the PPD options equivalent to the job options
   job_data = ps_create_job_data(job, options);
   // The filter has no output, data is going directly to the device
   nullfd = open("/dev/null", O_RDWR);
   // Create file descriptor/pipe to which the functions of libppd can send
   // the data so that it gets passed on to the device
-  job_data->device_fd = filterPOpen(ps_print_filter_function, -1, nullfd,
-				    0, &filter_data, device,
-				    &(job_data->device_pid));
+  if (job_data->cups_filter_ps)
+  {
+    // Create filter chain of the CUPS filter defined in the PPD file
+    // and the print filter function
+    job_data->chain = cupsArrayNew(NULL, NULL);
+    ppd_filter_params =
+      (filter_external_cups_t *)calloc(1, sizeof(filter_external_cups_t));
+    ppd_filter_params->filter = job_data->cups_filter_ps;
+    job_data->ppd_filter =
+      (filter_filter_in_chain_t *)calloc(1, sizeof(filter_filter_in_chain_t));
+    job_data->ppd_filter->function = filterExternalCUPS;
+    job_data->ppd_filter->parameters = ppd_filter_params;
+    job_data->ppd_filter->name = "Post-filtering";
+    cupsArrayAdd(job_data->chain, job_data->ppd_filter);
+    job_data->print =
+      (filter_filter_in_chain_t *)calloc(1, sizeof(filter_filter_in_chain_t));
+    job_data->print->function = ps_print_filter_function;
+    job_data->print->parameters = device;
+    job_data->print->name = "Printing";
+    cupsArrayAdd(job_data->chain, job_data->print);
+
+    job_data->device_fd = filterPOpen(filterChain, -1, nullfd,
+				      0, job_data->filter_data, job_data->chain,
+				      &(job_data->device_pid));
+  }
+  else
+    // No extra filter needed, make print filter function be called
+    // directly
+    job_data->device_fd = filterPOpen(ps_print_filter_function, -1, nullfd,
+				      0, job_data->filter_data, device,
+				      &(job_data->device_pid));
   if (job_data->device_fd < 0)
     return (false);
 
@@ -4543,6 +4799,8 @@ ps_system_web_add_ppd(
       ppd_option_t *option;
       bool      codeless_option_found;
       bool      pagesize_option_ok;
+      bool      filter_installed;
+      char      *filter_path;
 
 
       // Read one buffer full of data, then search for \r only up to a
@@ -4744,17 +5002,38 @@ ps_system_web_add_ppd(
 		    // Check for cupsFilter(2) entries and for options
 		    // where the choices have no PostScript or PJL code
 		    // to insert into the job stream. This indicates that
-		    // the PPD file is possibly for a CUPSdriver and not
+		    // the PPD file is possibly for a CUPS driver and not
 		    // for PostScript printing.
 		    // We do not reject these PPDs right away, as there
 		    // are some PostScript PPDs which use a filter only
 		    // to implement some non-essential options. Therefore
 		    // we issue a warning in such a case.
+		    // If the PPD mentions a filter taking PostScript as
+		    // input, we check whether it is installed and then
+		    // assume that it is used for more complex operations
+		    // In this case we do not give any warnings about
+		    // filters and codeless options as we assume that the
+		    // codeless options are handled by the installed
+		    // filter.
+		    filter_installed = false;
 		    if (ppd->num_filters)
-		      snprintf(strbuf, sizeof(strbuf),
-			       "%s: WARNING: CUPS driver PPD, possibly non-PostScript, options which will not work:",
-			       filename);
-		    else
+		    {
+		      filter_path =
+			ps_ppd_find_cups_filter
+			  ("application/vnd.cups-postscript",
+			   ppd->num_filters, ppd->filters);
+		      if (filter_path)
+		      {
+			filter_installed = true;
+			free(filter_path);
+		      }
+		      else
+		      {
+			snprintf(strbuf, sizeof(strbuf),
+				 "%s: WARNING: CUPS driver PPD, possibly non-PostScript, options which will not work:",
+				 filename);
+		      }
+		    } else
 		      snprintf(strbuf, sizeof(strbuf),
 			       "%s: WARNING: Options which will not work:",
 			       filename);
@@ -4779,7 +5058,9 @@ ps_system_web_add_ppd(
 			  continue;
 			// Do the choices provide code? If not, warn about
 			// this option not to work
-			if (!ps_option_has_code(system, ppd, option))
+			// Don't worry if the filter is installed
+			if (!filter_installed &&
+			    !ps_option_has_code(system, ppd, option))
 			{
 			  codeless_option_found = true;
 			  snprintf(strbuf + strlen(strbuf),
@@ -4793,7 +5074,7 @@ ps_system_web_add_ppd(
 		    }
 		    if (codeless_option_found)
 		      strbuf[strlen(strbuf) - 1] = '\0';
-		    else if (ppd->num_filters)
+		    else if (ppd->num_filters && !filter_installed)
 		    {
 		      // Log only the fact that PPD uses filter
 		      snprintf(strbuf, sizeof(strbuf),
@@ -5316,6 +5597,12 @@ system_cb(int           num_options,	// I - Number of options
     snprintf(spool_dir, sizeof(spool_dir), "%s", val);
   else
     snprintf(spool_dir, sizeof(spool_dir), "%s", SYSTEM_SPOOL_DIR);
+
+  // CUPS filter dir
+  if ((val = getenv("FILTER_DIR")) != NULL)
+    snprintf(filter_dir, sizeof(filter_dir), "%s", val);
+  else
+    snprintf(filter_dir, sizeof(filter_dir), "%s", FILTERDIR);
 
   // Create the system object...
   if ((system =
