@@ -9,6 +9,7 @@ mkdir -p $SNAP_COMMON/tmp
 chmod 1777 $SNAP_COMMON/tmp >/dev/null 2>&1 || :
 
 export TMPDIR=$SNAP_COMMON/tmp
+export FILTER_DIR=$SNAP/usr/lib/ps-printer-app/filter
 export TESTPAGE_DIR=$SNAP/usr/share/ps-printer-app
 export PPD_PATHS=$SNAP/usr/share/ppd/:$SNAP_COMMON/ppd/
 export STATE_FILE=$SNAP_COMMON/ps-printer-app.state

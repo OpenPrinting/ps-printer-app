@@ -331,6 +331,13 @@ parts:
     plugin: nil
     override-build: |
       set -eux
+      cd prnt/hpps
+      touch config.h
+      gcc -o hpps *.c -I. -I$SNAPCRAFT_STAGE/usr/include/ -L$SNAPCRAFT_STAGE/usr/lib/ -lcups
+      rm config.h
+      cd ../..
+      mkdir -p ../install
+      cp prnt/hpps/hpps ../install
       find prnt/ps -executable -type f -print0 | xargs -0 chmod -x || :
       find prnt/ps -type f \! -name '*.ppd' -print0 | xargs -0 rm || :
       for f in `find prnt/ps -name '*.ppd'`; do perl -p -i -e 's/^\*CloseUI(\s+)/*CloseUI:\1/' $f; perl -p -i -e 's/\*1284DeviceId/*1284DeviceID/' $f; perl -p -i -e 's/\*(cupsFilter2?:)/\*%\1/' $f; done
@@ -345,13 +352,16 @@ parts:
       - xz-utils
     organize:
       hplip-ps-ppds: usr/share/ppd/hplip-ps-ppds
+      hpps: usr/lib/ps-printer-app/filter/hpps
     stage:
       - usr/bin
       - usr/share/ppd
+      - usr/lib/ps-printer-app
     prime:
       - usr/bin
       - usr/share/ppd
-    after: [pyppd]
+      - usr/lib/ps-printer-app
+    after: [cups, pyppd]
 
   ps-printer-app:
     plugin: make
