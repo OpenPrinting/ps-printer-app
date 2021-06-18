@@ -555,7 +555,15 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
   ppd_attr_t            *ppd_attr;
   pwg_map_t             *pwg_map;
   char                  *ptr;
+  time_t t;
   filter_data_t         *filter_data;
+  const char * const extra_attributes[] =
+  {
+   "job-uuid",
+   "job-originating-user-name",
+   "job-originating-host-name",
+   NULL
+  };
   pappl_printer_t       *printer = papplJobGetPrinter(job);
 
   //
@@ -922,6 +930,31 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
 
   // Mark options in the PPD file
   ppdMarkOptions(job_data->ppd, job_data->num_options, job_data->options);
+
+  // Job attributes not handled by the PPD options which could be used by
+  // some CUPS filters or filter functions
+  for (i = 0; extra_attributes[i]; i ++)
+    if ((attr = papplJobGetAttribute(job, extra_attributes[i])) != NULL &&
+	(ptr = (char *)ippGetString(attr, 0, NULL)) != NULL)
+      job_data->num_options = cupsAddOption(extra_attributes[i], ptr,
+					    job_data->num_options,
+					    &(job_data->options));
+
+  // Add options with time of creation and time of processing of the job
+  if ((t = papplJobGetTimeCreated(job)) > 0)
+  {
+    snprintf(buf, sizeof(buf) - 1, "%ld", t);
+    job_data->num_options = cupsAddOption("time-at-creation", buf,
+					  job_data->num_options,
+					  &(job_data->options));
+  }
+  if ((t = papplJobGetTimeProcessed(job)) > 0)
+  {
+    snprintf(buf, sizeof(buf) - 1, "%ld", t);
+    job_data->num_options = cupsAddOption("time-at-processing", buf,
+					  job_data->num_options,
+					  &(job_data->options));
+  }
 
   // Log the option settings which will get used
   snprintf(buf, sizeof(buf) - 1, "PPD options to be used:");
