@@ -70,6 +70,7 @@ parts:
     override-build: |
       set -eux
       patch -p1 < $SNAPCRAFT_STAGE/patches/pappl-refresh-media-default-when-changing-media-ready.patch
+      patch -p1 < $SNAPCRAFT_STAGE/patches/pappl-support-text-string-vendor-options.patch
       snapcraftctl build
     autotools-configure-parameters:
       - --prefix=/usr
@@ -232,8 +233,11 @@ parts:
       ./configure --disable-avahi --disable-ldap --disable-foomatic --disable-braille --disable-mutool --without-rcdir --with-pdftops-path=/snap/cups/current/usr/bin/pdftops
       make libppd.la
       make libcupsfilters.la
+      make foomatic-rip
       mkdir -p $SNAPCRAFT_STAGE/usr/lib
-      cp .libs/* $SNAPCRAFT_STAGE/usr/lib/
+      cp .libs/lib* $SNAPCRAFT_STAGE/usr/lib/
+      mkdir -p ../install
+      cp .libs/foomatic-rip ../install
       mkdir -p $SNAPCRAFT_STAGE/usr/include/ppd
       cp ppd/*.h $SNAPCRAFT_STAGE/usr/include/ppd/
       mkdir -p $SNAPCRAFT_STAGE/usr/include/cupsfilters
@@ -270,6 +274,8 @@ parts:
       - libpoppler97
       - libtiff5
       - libwebp6
+    organize:
+      foomatic-rip: usr/lib/ps-printer-app/filter/foomatic-rip
     prime:
       - -etc/fonts
       - -var
@@ -286,6 +292,7 @@ parts:
       - usr/lib/libppd.so.1
       - -usr/lib/libppd.so.1.0.0
       - usr/bin/pdftops
+      - usr/lib/ps-printer-app
     after: [jpeglib, cups, qpdf, ghostscript]
 
   pyppd:
@@ -366,6 +373,10 @@ parts:
   ps-printer-app:
     plugin: make
     source: .
+    override-build: |
+      set -eux
+      patch -p1 < $SNAPCRAFT_STAGE/patches/ppd-cups-custom-options-support.patch
+      snapcraftctl build
     make-parameters:
       - LDFLAGS="$LDFLAGS -ljpeg"
     build-packages:
