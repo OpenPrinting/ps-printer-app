@@ -528,7 +528,7 @@ ps_compare_ppd_paths(void *a,
 static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
 					 pappl_pr_options_t *job_options)
 {
-  int                   i, j, count;
+  int                   i, j, k, count, intval;
   ps_driver_extension_t *extension;
   ps_job_data_t         *job_data;      // PPD data for job
   ppd_cache_t           *pc;
@@ -554,7 +554,10 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
   ppd_choice_t          *choice;        // Choice in PPD option
   ppd_attr_t            *ppd_attr;
   pwg_map_t             *pwg_map;
-  char                  *ptr;
+  ppd_coption_t         *coption = NULL;
+  char                  *param;
+  int                   num_cparams = 0;
+  char                  paramstr[1024];
   time_t t;
   filter_data_t         *filter_data;
   const char * const extra_attributes[] =
@@ -855,8 +858,18 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
 	    driver_data.num_vendor);
        i ++)
   {
-    papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: %s",
-		extension->vendor_ppd_options[i]);
+    if ((param = strchr(extension->vendor_ppd_options[i], ':')) == NULL) {
+      papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: %s",
+		  extension->vendor_ppd_options[i]);
+      coption = NULL;
+      num_cparams = 0;
+      k = 0;
+    }
+    else
+    {
+      param ++;
+      papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "  Custom parameter: %s", param);
+    }
     if ((attr = papplJobGetAttribute(job, driver_data.vendor[i])) == NULL ||
 	ippGetString(attr, 0, NULL) == NULL)
     {
@@ -867,48 +880,91 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
     choicestr = NULL;
     if (attr)
     {
+      val = NULL;
       if (ippGetValueTag(attr) == IPP_TAG_BOOLEAN)
-	ptr = strdup(ippGetBoolean(attr, 0) ? "True" : "False");
+	val = ippGetBoolean(attr, 0) ? "True" : "False";
+      else if (ippGetValueTag(attr) == IPP_TAG_INTEGER)
+	intval = ippGetInteger(attr, 0);
       else
-	ptr = strdup(ippGetString(attr, 0, NULL));
-      snprintf(buf, sizeof(buf), "%s-supported", driver_data.vendor[i]);
-      attr = ippFindAttribute(driver_attrs, buf, IPP_TAG_ZERO);
-      if (attr == NULL)
+	val = ippGetString(attr, 0, NULL);
+      if (param)
       {
-	// Should never happen
-	papplLogJob(job, PAPPL_LOGLEVEL_ERROR,
-		    "  IPP Option not correctly registered (bug), "
-		    "skipping ...");
-	continue;
-      }
-      option = ppdFindOption(job_data->ppd, extension->vendor_ppd_options[i]);
-      if (option == NULL)
-      {
-	// Should never happen
-	papplLogJob(job, PAPPL_LOGLEVEL_ERROR,
-		    "  PPD Option not correctly registered (bug), "
-		    "skipping ...");
-	continue;
-      }
-      for (j = 0;
-	   j < (ippGetValueTag(attr) == IPP_TAG_BOOLEAN ?
-		2 : ippGetCount(attr));
-	   j ++)
-      {
-	ppdPwgUnppdizeName(option->choices[j].text, buf, sizeof(buf), NULL);
-	if (!strcasecmp(buf, ptr))
+	if (!option || !coption || num_cparams <= 0 || k >= num_cparams)
+	  continue;
+	if (num_cparams == 1)
 	{
-	  choicestr = option->choices[j].choice;
-	  break;
+	  if (ippGetValueTag(attr) == IPP_TAG_INTEGER)
+	    snprintf(paramstr, sizeof(paramstr) - 1, "Custom.%d", intval);
+	  else
+	    snprintf(paramstr, sizeof(paramstr) - 1, "Custom.%s", val);
 	}
+	else
+	{
+	  if (k == 0)
+	  {
+	    paramstr[0] = '{';
+	    paramstr[1] = '\0';
+	  }
+	  if (ippGetValueTag(attr) == IPP_TAG_INTEGER)
+	    snprintf(paramstr + strlen(paramstr),
+		     sizeof(paramstr) - strlen(paramstr) - 1,
+		     "%s=%d ", param, intval);
+	  else
+	    snprintf(paramstr + strlen(paramstr),
+		     sizeof(paramstr) - strlen(paramstr) - 1,
+		     "%s=%s ", param, val);
+	  if (k == num_cparams - 1)
+	    paramstr[strlen(paramstr) - 1] = '}';
+	}
+	if (k == num_cparams - 1)
+	  job_data->num_options =
+	    cupsAddOption(option->keyword, paramstr, job_data->num_options,
+			  &(job_data->options));
+	k ++;
       }
-      if (choicestr != NULL &&
-	  !ppdInstallableConflict(job_data->ppd,
-				  extension->vendor_ppd_options[i], choicestr))
-	job_data->num_options = cupsAddOption(extension->vendor_ppd_options[i],
-					      choicestr, job_data->num_options,
-					      &(job_data->options));
-      free(ptr);
+      else
+      {
+	option = ppdFindOption(job_data->ppd, extension->vendor_ppd_options[i]);
+	if (option == NULL)
+        {
+	  // Should never happen
+	  papplLogJob(job, PAPPL_LOGLEVEL_ERROR,
+		      "  PPD Option not correctly registered (bug), "
+		      "skipping ...");
+	  continue;
+	}
+	if (val == NULL)
+        {
+	  // Should never happen
+	  papplLogJob(job, PAPPL_LOGLEVEL_ERROR,
+		      "  PPD option not enumerated choice or boolean, "
+		      "skipping ...");
+	  continue;
+	}
+	for (j = 0;
+	     j < (ippGetValueTag(attr) == IPP_TAG_BOOLEAN ?
+		  2 : option->num_choices);
+	     j ++)
+        {
+	  ppdPwgUnppdizeName(option->choices[j].text, buf, sizeof(buf), NULL);
+	  if (!strcasecmp(buf, val))
+	  {
+	    choicestr = option->choices[j].choice;
+	    break;
+	  }
+	}
+	if (choicestr != NULL &&
+	    !ppdInstallableConflict(job_data->ppd,
+				    extension->vendor_ppd_options[i],
+				    choicestr) &&
+	    (strcasecmp(choicestr, "Custom") ||
+	     (coption =
+	      ppdFindCustomOption(job_data->ppd, option->keyword)) == NULL ||
+	     (num_cparams = cupsArrayCount(coption->params)) <= 0))
+	    job_data->num_options =
+	      cupsAddOption(option->keyword, choicestr, job_data->num_options,
+			    &(job_data->options));
+      }
     }
   }
 
@@ -918,10 +974,10 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
 			    "multiple-document-handling")) != NULL)
   {
     papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Adding option: Collate");
-    ptr = (char *)ippGetString(attr, 0, NULL);
-    if (strstr(ptr, "uncollate"))
+    val = ippGetString(attr, 0, NULL);
+    if (strstr(val, "uncollate"))
       choicestr = "False";
-    else if (strstr(ptr, "collate"))
+    else if (strstr(val, "collate"))
       choicestr = "True";
     job_data->num_options = cupsAddOption("Collate", choicestr,
 					  job_data->num_options,
@@ -935,8 +991,8 @@ static ps_job_data_t *ps_create_job_data(pappl_job_t *job,
   // some CUPS filters or filter functions
   for (i = 0; extra_attributes[i]; i ++)
     if ((attr = papplJobGetAttribute(job, extra_attributes[i])) != NULL &&
-	(ptr = (char *)ippGetString(attr, 0, NULL)) != NULL)
-      job_data->num_options = cupsAddOption(extra_attributes[i], ptr,
+	(val = ippGetString(attr, 0, NULL)) != NULL)
+      job_data->num_options = cupsAddOption(extra_attributes[i], val,
 					    job_data->num_options,
 					    &(job_data->options));
 
@@ -1335,7 +1391,7 @@ ps_driver_setup(
     ipp_t                **driver_attrs,   // O - Driver attributes
     void                 *data)	           // I - Callback data
 {
-  int          i, j, k, l;                 // Looping variables
+  int          i, j, k, l, m;              // Looping variables
   bool         update;                     // Are we updating the data
                                            // structure and not freshly
                                            // creating it?
@@ -1368,14 +1424,19 @@ ps_driver_setup(
   pwg_map_t    *pwg_map;
   pwg_size_t   *pwg_size;
   ppd_pwg_finishings_t *finishings;
+  ppd_coption_t *coption;
+  ppd_cparam_t *cparam;
+  int          num_cparams;
   pappl_media_col_t tmp_col;
   int          count;
   bool         pollable;
   char         buf[1024],
                ipp_opt[80],
-               ipp_supported[128],
-               ipp_default[128],
-               ipp_choice[80];
+               ipp_supported[256],
+               ipp_default[256],
+               ipp_choice[80],
+               ipp_custom_opt[192],
+               ipp_param[80];
   char         **choice_list;
   int          default_choice,
                first_choice;
@@ -2126,6 +2187,14 @@ ps_driver_setup(
 	}
       }
     }
+    // If there is no InputSlot (media source) option in the PPD file,
+    // set a single entry for the default media size and type
+    if (j == 0)
+    {
+      memcpy(&(driver_data->media_ready[0]), &(driver_data->media_default),
+	     sizeof(pappl_media_col_t));
+      j = 1;
+    }
     // During initial loading of the state file add a terminating zero
     // item to manage the "Undo" space when configuring available
     // media trays on the printer
@@ -2259,9 +2328,15 @@ ps_driver_setup(
          j > 0;
          j --, option ++)
     {
-      // Does the option have less than 2 choices? Then it does not make
-      // sense to let it show in the web interface
-      if (option->num_choices < 2)
+      // Does the option allow custom values?
+      num_cparams = 0;
+      if ((coption = ppdFindCustomOption(ppd, option->keyword)) != NULL)
+	num_cparams = cupsArrayCount(coption->params);
+
+      // Does the option have less than 2 choices and also does not
+      // allow custom values? Then it does not make sense to let it
+      // show in the web interface
+      if (option->num_choices < 2 && num_cparams == 0)
 	continue;
 
       // Can printer's default setting of this option be polled from the
@@ -2315,19 +2390,37 @@ ps_driver_setup(
 	  !ps_option_has_code(system, ppd, option))
 	continue;
 
-      // Stop and warn if we have no slot for vendor attributes any more
+      // Stop and warn if we have no slots for vendor attributes any more
       // Note that we reserve one slot for saving the "Installable Options"
       // in the state file
-      if (driver_data->num_vendor >= PAPPL_MAX_VENDOR - 1)
+      // We also take into account here that each custom parameter for this
+      // option requires one additional vendor option
+      if (driver_data->num_vendor >= PAPPL_MAX_VENDOR - 1 - num_cparams)
       {
 	papplLog(system, PAPPL_LOGLEVEL_WARN,
-		 "Too many options in PPD file, \"%s\" will not be controllable!",
-		 option->keyword);
+		 "Too many options in PPD file, \"%s\" (\"%s\") will not be controllable!",
+		 option->keyword, option->text);
 	continue;
       }
 
-      // IPP-style names
+      // IPP-style option name
       ppdPwgUnppdizeName(option->text, ipp_opt, sizeof(ipp_opt), NULL);
+
+      // Check whether we have a duplicate (PPD bug: 2 Options have same
+      // Human-readable string)
+      for (k = 0; k < driver_data->num_vendor; k ++)
+	if (strcmp(ipp_opt, driver_data->vendor[k]) == 0)
+	{
+	  papplLog(system, PAPPL_LOGLEVEL_WARN,
+		   "Two options with the same human-readable name in the PPD file (PPD file bug): \"%s\" and \"%s\" both have \"%s\", giving the IPP attribute name \"%s\"",
+		   extension->vendor_ppd_options[k],
+		   option->keyword, option->text, ipp_opt);
+	  break;
+	}
+      if (k < driver_data->num_vendor)
+	continue;
+
+      // IPP attribute names for available values and default value
       snprintf(ipp_supported, sizeof(ipp_supported), "%s-supported", ipp_opt);
       snprintf(ipp_default, sizeof(ipp_default), "%s-default", ipp_opt);
 
@@ -2422,11 +2515,51 @@ ps_driver_setup(
 	    if (!(update && ppdInstallableConflict(ppd, option->keyword,
 						   option->choices[k].choice)))
 	    {
-	      if (first_choice < 0)
-		first_choice = k;
+	      // If we have custom parameters (we accept a custom value)
+	      // the last choice of this option is "Custom". Only accept
+	      // this choice if PAPPL supports all the parameters (only
+	      // strings and integer numbers are supported)
+	      if (k == option->num_choices - 1 && num_cparams > 0)
+	      {
+		for (m = 0; m < num_cparams; m++)
+		{
+		  cparam = (ppd_cparam_t *)cupsArrayIndex(coption->params, m);
+		  if (cparam->type != PPD_CUSTOM_INT &&
+		      cparam->type != PPD_CUSTOM_STRING &&
+		      cparam->type != PPD_CUSTOM_PASSWORD &&
+		      cparam->type != PPD_CUSTOM_PASSCODE)
+		    break;
+		}
+		if (m < num_cparams)
+		{
+		  papplLog(system, PAPPL_LOGLEVEL_WARN,
+			   "  Custom setting for this option not possible, as the parameter \"%s\" (\"%s\") is of a format not supported by PAPPL",
+			   cparam->name, cparam->text);
+		  num_cparams = 0;
+		  continue;
+		}
+	      }
 	      ppdPwgUnppdizeName(option->choices[k].text,
 				 ipp_choice, sizeof(ipp_choice), NULL);
+	      // Check whether we have a duplicate (PPD bug: 2 Choices have same
+	      // Human-readable string)
+	      for (m = 0; m < l; m ++)
+		if (strcmp(ipp_choice, choice_list[m]) == 0)
+		{
+		  papplLog(system, PAPPL_LOGLEVEL_WARN,
+			   "  Two choices with the same human-readable name in the PPD file (PPD file bug): Choice \"%s\" (\"%s\") giving the IPP choice name \"%s\"",
+			   option->choices[k].choice,
+			   option->choices[k].text, ipp_choice);
+		  if (k == option->num_choices - 1 && num_cparams > 0)
+		    num_cparams = 0;
+		  break;
+		}
+	      if (m < l)
+		continue;
+	      // Choice is valid, add it
 	      choice_list[l] = strdup(ipp_choice);
+	      if (first_choice < 0)
+		first_choice = k;
 	      if ((!update && option->choices[k].marked) ||
 		  (update && buf[0] && !strcasecmp(ipp_choice, buf)))
 	      {
@@ -2440,6 +2573,11 @@ ps_driver_setup(
 		       default_choice == l ? " (default)" : "");
 	      l ++;
 	    }
+	    else if (k == option->num_choices - 1 && num_cparams > 0)
+	      // Last choice is the "custom" choice if an option allows custom
+	      // values, if it is dropped, this option does not allow custom
+	      // values any more
+	      num_cparams = 0;
 	  if (l > 0 && default_choice < 0)
 	  {
 	    default_choice = 0;
@@ -2457,7 +2595,7 @@ ps_driver_setup(
 	  for (k = 0; k < l; k ++)
 	    free(choice_list[k]);
 	  free(choice_list);
-	  if (l < 2)
+	  if (l == 0 || (l == 1 && num_cparams == 0))
 	  {
 	    papplLog(system, PAPPL_LOGLEVEL_DEBUG,
 		     "   -> Skipping - Option does not make sense with current accessory configuration");
@@ -2475,6 +2613,73 @@ ps_driver_setup(
 
       // Next entry ...
       driver_data->num_vendor ++;
+
+      // Does the option allow a custom value?
+      if (num_cparams == 0)
+	continue;
+
+      // Go through all custom parameters of the option
+      for (k = 0; k < num_cparams; k++)
+      {
+	cparam = (ppd_cparam_t *)cupsArrayIndex(coption->params, k);
+	// Name for extra vendor option to set this parameter
+	if (num_cparams == 1)
+	  snprintf(ipp_custom_opt, sizeof(ipp_custom_opt), "custom-%s", ipp_opt);
+	else
+	{
+	  ppdPwgUnppdizeName(cparam->text, ipp_param, sizeof(ipp_param), NULL);
+	  snprintf(ipp_custom_opt, sizeof(ipp_custom_opt), "custom-%s-for-%s",
+		   ipp_param, ipp_opt);
+	}
+	snprintf(ipp_supported, sizeof(ipp_supported), "%s-supported",
+		 ipp_custom_opt);
+	snprintf(ipp_default, sizeof(ipp_default), "%s-default",
+		 ipp_custom_opt);
+	// Create extra vendor option for each custom parameter, according to
+	// the data type
+	switch (cparam->type)
+	{
+	case PPD_CUSTOM_INT:
+	  if (!ippFindAttribute(*driver_attrs, ipp_default, IPP_TAG_ZERO))
+	    ippAddInteger(*driver_attrs, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
+			  ipp_default,
+			  (cparam->minimum.custom_int <= 0 &&
+			   cparam->maximum.custom_int >= 0 ? 0 :
+			   (cparam->maximum.custom_int < 0 ?
+			    cparam->maximum.custom_int :
+			    cparam->minimum.custom_int)));
+	  if (!ippFindAttribute(*driver_attrs, ipp_supported, IPP_TAG_ZERO))
+	    ippAddRange(*driver_attrs, IPP_TAG_PRINTER, ipp_supported,
+			cparam->minimum.custom_int, cparam->maximum.custom_int);
+	  break;
+	case PPD_CUSTOM_STRING:
+	case PPD_CUSTOM_PASSCODE:
+	case PPD_CUSTOM_PASSWORD:
+	  if (!ippFindAttribute(*driver_attrs, ipp_default, IPP_TAG_ZERO))
+	    ippAddString(*driver_attrs, IPP_TAG_PRINTER, IPP_TAG_TEXT,
+			 ipp_default, NULL, "");
+	  break;
+	case PPD_CUSTOM_CURVE:
+	case PPD_CUSTOM_INVCURVE:
+	case PPD_CUSTOM_POINTS:
+	case PPD_CUSTOM_REAL:
+	case PPD_CUSTOM_UNKNOWN:
+	default:
+	  papplLog(system, PAPPL_LOGLEVEL_ERROR,
+		   "  Unsupported parameter \"%s\" (\"%s\") as IPP attribute \"%s\" -> This should never happen, \"Custom\" choice should have been rejected",
+		   cparam->name, cparam->text, ipp_custom_opt);
+	  break;
+	}
+	papplLog(system, PAPPL_LOGLEVEL_DEBUG,
+		 "  Adding custom parameter \"%s\" (\"%s\") as IPP attribute \"%s\"",
+		 cparam->name, cparam->text, ipp_custom_opt);
+	// Add parameter vendor option to lookup lists
+	driver_data->vendor[driver_data->num_vendor] = strdup(ipp_custom_opt);
+	snprintf(buf, sizeof(buf), "%s:%s", option->keyword, cparam->name);
+	extension->vendor_ppd_options[driver_data->num_vendor] = strdup(buf);
+	// Next entry ...
+	driver_data->num_vendor ++;
+      }
     }
   }
 
