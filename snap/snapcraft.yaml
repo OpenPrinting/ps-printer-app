@@ -375,7 +375,7 @@ parts:
     source: .
     override-build: |
       set -eux
-      patch -p1 < $SNAPCRAFT_STAGE/patches/ppd-cups-custom-options-support.patch
+      patch -p1 < $SNAPCRAFT_STAGE/patches/support-new-pappl-string-options.patch
       snapcraftctl build
     make-parameters:
       - LDFLAGS="$LDFLAGS -ljpeg"
