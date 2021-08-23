@@ -4,9 +4,13 @@
 
 This repository contains a Printer Application for PostScript printers
 that uses [PAPPL](https://www.msweet.org/pappl) to support IPP
-printing from multiple operating systems. In addition, it uses the resources
-of [cups-filters 2.x](https://github.com/OpenPrinting/cups-filters) (filter
-functions in libcupsfilters, libppd). This work is derived from the
+printing from multiple operating systems. In addition, it uses the
+resources of [cups-filters
+2.x](https://github.com/OpenPrinting/cups-filters) (filter functions
+in libcupsfilters, libppd) and
+[pappl-retrofit](https://github.com/OpenPrinting/pappl-retrofit)
+(encapsulating classic CUPS drivers in Printer Applications). This
+work (or now the code of pappl-retrofit) is derived from the
 [hp-printer-app](https://github.com/michaelrsweet/hp-printer-app).
 
 Your contributions are welcome. Please post [issues and pull
@@ -81,6 +85,24 @@ Further properties are:
   field before make/model lookup we assure that if PostScript is
   provided by an add-on module that the module is actually installed.
 
+- Standard job IPP attributes are mapped to the PPD option settings
+  best fitting to them so that users can print from any type of client
+  (like for example a phone or IoT device) which only supports
+  standard IPP attributes and cannot retrive the PPD options. Trays,
+  media sizes, media types, and duplex can get mapped easily, but when
+  it comes to color and quality it gets more complex, as relevant
+  options differ a lot in the PPD files. Here we use an algorithm
+  which automatically (who wants hand-edit ~10000 PPDs for the
+  assignments) finds the right set of option settings for each
+  combination of `print-color-mode` (`color`/`monochrome`),
+  `print-quality` (`draft`/`normal`/`high`), and
+  `print-content-optimize`
+  (`auto`/`photo`/`graphics`/`text`/`text-and-graphics`) in the PPD of
+  the current printer. So you ahve easy access to the full quality or
+  speed of your printer without needing to deal with printer-specific
+  option settings (the original options are still accessible via web
+  admin interface).
+
 - The printer capabilities for a given printer model (a "driver" in
   the Printer Application) are not static throughout the life of the
   print queue set up in the Printer Application. The user can
@@ -127,10 +149,6 @@ Further properties are:
   [Issue #83: CUPS does IPP and SNMP ink level polls via backends,
   PAPPL should have functions for
   this](https://github.com/michaelrsweet/pappl/issues/83))
-
-- In `ps-printer-app.c` some places are marked with `TODO`. These are
-  points to be improved or where functionality in PAPPL is still
-  needed.
 
 - Build options for cups-filters, to build without libqpdf and/or
   without libppd, the former will allow to create the Snap of this
@@ -191,8 +209,10 @@ http://localhost:8000/
 ```
 
 Use the web interface to add a printer. Supply a name, select the
-discovered printer, then select make and model. Also set the loaded
-media and the option defaults.
+discovered printer, then select make and model. Also set the installed
+accessories, loaded media and the option defaults. Accessory
+configuration and option defaults can also offen get polled from the
+printer.
 
 Then print PDF, PostScript, JPEG, Apple Raster, or PWG Raster files
 with
@@ -259,21 +279,24 @@ Use the "--debug" argument for verbose logging in your terminal window.
 ## BUILDING WITHOUT SNAP
 
 You can also do a "quick-and-dirty" build without snapping and without
-needing to install PAPPL and cups-filters 2.x into your system. You
-need a directory with the latest GIT snapshot of PAPPL and the latest
-GIT snapshot of cups-filters (master branch). Both PAPPL and
-cups-filters need to be compiled (./cnfigure; make), installing not
+needing to install [PAPPL](https://www.msweet.org/pappl),
+[cups-filters 2.x](https://github.com/OpenPrinting/cups-filters), and
+[pappl-retrofit](https://github.com/OpenPrinting/pappl-retrofit) into
+your system. You need a directory with the latest GIT snapshot of
+PAPPL, the latest GIT snapshot of cups-filters, and the latest GIT
+snapshot of pappl-retrofit (master branches of each). They all need to
+be compiled (`./autogen.sh; ./configure; make`), installing not
 needed. Also install the header files of all needed libraries
 (installing "libcups2-dev" should do it).
 
-In the directory with the attached ps-printer-app.c run the command
-line
+In the directory with ps-printer-app.c run the command line
 
 ```
-gcc -o ps-printer-app ps-printer-app.c $PAPPL_SRC/pappl/libpappl.a $CUPS_FILTERS_SRC/.libs/libppd.a $CUPS_FILTERS_SRC/.libs/libcupsfilters.a -ldl -lpthread  -lppd -lcups -lavahi-common -lavahi-client -lgnutls -ljpeg -lpng16 -ltiff -lz -lm -lusb-1.0 -lpam -lqpdf -lstdc++ -I. -I$PAPPL_SRC/pappl -I$CUPS_FILTERS_SRC/ppd -I$CUPS_FILTERS_SRC/cupsfilters -L$CUPS_FILTERS_SRC/.libs/
+gcc -o ps-printer-app ps-printer-app.c $PAPPL_SRC/pappl/libpappl.a $CUPS_FILTERS_SRC/.libs/libppd.a $CUPS_FILTERS_SRC/.libs/libcupsfilters.a $PAPPL_RETROFIT_SRC/.libs/libpappl-retrofit.a -ldl -lpthread  -lppd -lcups -lavahi-common -lavahi-client -lgnutls -ljpeg -lpng16 -ltiff -lz -lm -lusb-1.0 -lpam -lqpdf -lstdc++ -I. -I$PAPPL_SRC/pappl -I$CUPS_FILTERS_SRC/ppd -I$CUPS_FILTERS_SRC/cupsfilters -I$PAPPL_RETROFIT_SRC/pappl/retrofit -L$CUPS_FILTERS_SRC/.libs/ -L$PAPPL_RETROFIT_SRC/.libs/
 ```
 
-There is also a Makefile, but this needs PAPPL and cups-filters 2.x to be installed into your system.
+There is also a Makefile, but this needs PAPPL, cups-filters 2.x, and
+pappl-retrofit to be installed into your system.
 
 Run
 
