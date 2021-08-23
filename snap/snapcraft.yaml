@@ -107,6 +107,33 @@ parts:
       - usr/lib/libpappl.so.1
     after: [patches, jpeglib]
 
+  pappl-retrofit:
+    source: https://github.com/openprinting/pappl-retrofit
+    source-type: git
+    plugin: autotools
+    override-build: |
+      set -eux
+      patch -p1 < $SNAPCRAFT_STAGE/patches/support-new-pappl-string-options.patch
+      snapcraftctl build
+    autotools-configure-parameters:
+      - --prefix=/usr
+    build-packages:
+      - autoconf
+      - automake
+      - libtool
+      - autotools-dev
+      - pkg-config
+      - perl-base
+    prime:
+      - -var
+      - -usr/bin/test-printer-app
+      - -usr/include
+      - -usr/lib/pkgconfig
+      - -usr/lib/test-printer-app
+      - -usr/share/
+      - -snap
+    after: [patches, cups, cups-filters, pappl]
+
   qpdf:
     source: https://github.com/qpdf/qpdf/releases/download/release-qpdf-10.3.1/qpdf-10.3.1.tar.gz
     plugin: autotools
@@ -233,6 +260,7 @@ parts:
       ./configure --disable-avahi --disable-ldap --disable-foomatic --disable-braille --disable-mutool --without-rcdir --with-pdftops-path=/snap/cups/current/usr/bin/pdftops
       make libppd.la
       make libcupsfilters.la
+      make libfontembed.la
       make foomatic-rip
       mkdir -p $SNAPCRAFT_STAGE/usr/lib
       cp .libs/lib* $SNAPCRAFT_STAGE/usr/lib/
@@ -242,6 +270,8 @@ parts:
       cp ppd/*.h $SNAPCRAFT_STAGE/usr/include/ppd/
       mkdir -p $SNAPCRAFT_STAGE/usr/include/cupsfilters
       cp cupsfilters/*.h $SNAPCRAFT_STAGE/usr/include/cupsfilters/
+      mkdir -p $SNAPCRAFT_STAGE/usr/include/fontembed
+      cp fontembed/*.h $SNAPCRAFT_STAGE/usr/include/fontembed/
       mkdir -p $SNAPCRAFT_STAGE/usr/lib/pkgconfig
       cp *.pc $SNAPCRAFT_STAGE/usr/lib/pkgconfig/
       #snapcraftctl build
@@ -291,6 +321,8 @@ parts:
       - -usr/lib/libcupsfilters.so.1.0.0
       - usr/lib/libppd.so.1
       - -usr/lib/libppd.so.1.0.0
+      - usr/lib/libfontembed.so.1
+      - -usr/lib/libfontembed.so.1.0.0
       - usr/bin/pdftops
       - usr/lib/ps-printer-app
     after: [jpeglib, cups, qpdf, ghostscript]
@@ -373,10 +405,6 @@ parts:
   ps-printer-app:
     plugin: make
     source: .
-    override-build: |
-      set -eux
-      patch -p1 < $SNAPCRAFT_STAGE/patches/support-new-pappl-string-options.patch
-      snapcraftctl build
     make-parameters:
       - LDFLAGS="$LDFLAGS -ljpeg"
     build-packages:
@@ -389,7 +417,7 @@ parts:
       - libwebp6
     prime:
       - -usr/share/man
-    after: [pappl, cups-filters, foomatic-db, hplip]
+    after: [pappl-retrofit, pappl, cups-filters, foomatic-db, hplip]
 
   mdns-lookup:
     # Make resolution of ".local" host names (Zero-Conf/mDNS/DNS-SD)

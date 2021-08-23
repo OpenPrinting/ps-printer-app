@@ -1,13 +1,13 @@
-diff --git a/ps-printer-app.c b/ps-printer-app.c
-index 22528fd..cd8bed3 100644
---- a/ps-printer-app.c
-+++ b/ps-printer-app.c
-@@ -1353,6 +1353,64 @@ static const char *ps_default_paper_size()
+diff --git a/pappl-retrofit/pappl-retrofit.c b/pappl-retrofit/pappl-retrofit.c
+index 3ccd3df..0c87e21 100644
+--- a/pappl-retrofit/pappl-retrofit.c
++++ b/pappl-retrofit/pappl-retrofit.c
+@@ -980,6 +980,64 @@ const char *pr_default_paper_size()
  }
  
  
-+static void
-+ps_set_installable_options(ipp_t *driver_attrs,
++void
++pr_set_installable_options(ipp_t *driver_attrs,
 +			   const char *options)
 +{
 +  if (!driver_attrs)
@@ -23,8 +23,8 @@ index 22528fd..cd8bed3 100644
 +}
 +
 +
-+static const char*
-+ps_get_installable_options(ipp_t *driver_attrs,
++const char*
++pr_get_installable_options(ipp_t *driver_attrs,
 +			   char *buf,
 +			   int bufsize)
 +{
@@ -56,7 +56,7 @@ index 22528fd..cd8bed3 100644
 +    // Transition from older version of ps-printer-app
 +    ippAttributeString(attr, buf, bufsize);
 +    // Update attribute to new format
-+    ps_set_installable_options(driver_attrs, buf);
++    pr_set_installable_options(driver_attrs, buf);
 +    return (buf);
 +  }
 +
@@ -65,9 +65,9 @@ index 22528fd..cd8bed3 100644
 +
 +
  //
- // 'ps_driver_setup()' - PostScript driver setup callback.
+ // 'pr_driver_setup()' - PostScript driver setup callback.
  //
-@@ -1650,10 +1708,8 @@ ps_driver_setup(
+@@ -1405,10 +1463,8 @@ pr_driver_setup(
    // configuration.
  
    // Get settings of the "Installable Options" from the previous session
@@ -75,34 +75,34 @@ index 22528fd..cd8bed3 100644
 -      (attr = ippFindAttribute(*driver_attrs, "installable-options-default",
 -			       IPP_TAG_ZERO)) != NULL &&
 -      ippAttributeString(attr, buf, sizeof(buf)) > 0)
-+  if (ps_get_installable_options(*driver_attrs, buf, sizeof(buf)) &&
++  if (pr_get_installable_options(*driver_attrs, buf, sizeof(buf)) &&
 +      buf[0])
    {
-     options = NULL;
-     num_options = cupsParseOptions(buf, 0, &options);
-@@ -2694,8 +2750,7 @@ ps_driver_setup(
+     inst_options = NULL;
+     num_inst_options = cupsParseOptions(buf, 0, &inst_options);
+@@ -2737,8 +2793,7 @@ pr_driver_setup(
      extension->vendor_ppd_options[driver_data->num_vendor] = NULL;
      driver_data->num_vendor ++;
      if (!update)
 -      ippAddString(*driver_attrs, IPP_TAG_PRINTER, IPP_TAG_TEXT,
 -		   "installable-options-default", NULL, "");
-+      ps_set_installable_options(*driver_attrs, "");
++      pr_set_installable_options(*driver_attrs, "");
    }
  
-   return (true);
-@@ -3596,9 +3651,8 @@ ps_printer_update_for_installable_options(
+   // Clean up
+@@ -3372,9 +3427,8 @@ pr_printer_update_for_installable_options(
  
    // Get a copy of the driver IPP attributes to save the vendor option settings
    driver_attrs = papplPrinterGetDriverAttributes(printer);
 -  if ((attr = ippFindAttribute(driver_attrs, "installable-options-default",
 -			       IPP_TAG_ZERO)) != NULL &&
 -      ippAttributeString(attr, buf, sizeof(buf)) > 0)
-+  if (ps_get_installable_options(driver_attrs, buf, sizeof(buf)) &&
++  if (pr_get_installable_options(driver_attrs, buf, sizeof(buf)) &&
 +      buf[0])
    {
      papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
  		    "Previous installable accessories settings: %s", buf);
-@@ -3610,14 +3664,8 @@ ps_printer_update_for_installable_options(
+@@ -3386,14 +3440,8 @@ pr_printer_update_for_installable_options(
  		    "Installable Options settings not found");
  
    // If we have new installable options settings update them in driver_attrs
@@ -115,11 +115,11 @@ index 22528fd..cd8bed3 100644
 -		 "installable-options-default", NULL, instoptstr);
 -  }
 +  if (instoptstr && instoptstr != buf)
-+    ps_set_installable_options(driver_attrs, instoptstr);
++    pr_set_installable_options(driver_attrs, instoptstr);
  
    // Update the driver data to correspond with the printer hardware
    // accessory configuration ("Installable Options" in the PPD)
-@@ -3638,7 +3686,8 @@ ps_printer_update_for_installable_options(
+@@ -3414,7 +3462,8 @@ pr_printer_update_for_installable_options(
        papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG,
  		      "Default setting for vendor option \"%s\" not found",
  		      driver_data.vendor[i]);
@@ -129,14 +129,33 @@ index 22528fd..cd8bed3 100644
        continue;
      snprintf(buf, sizeof(buf), "%s-supported", driver_data.vendor[i]);
      attr = ippFindAttribute(driver_attrs, buf, IPP_TAG_ZERO);
-@@ -3829,16 +3878,17 @@ ps_printer_web_device_config(
+diff --git a/pappl-retrofit/pappl-retrofit.h b/pappl-retrofit/pappl-retrofit.h
+index 035b2ef..e16b0bd 100644
+--- a/pappl-retrofit/pappl-retrofit.h
++++ b/pappl-retrofit/pappl-retrofit.h
+@@ -110,6 +110,10 @@ extern bool   pr_str_has_code(const char *str);
+ extern bool   pr_option_has_code(pappl_system_t *system, ppd_file_t *ppd,
+ 				 ppd_option_t *option);
+ extern const char *pr_default_paper_size();
++extern void   pr_set_installable_options(ipp_t *driver_attrs,
++					 const char *options);
++extern const char* pr_get_installable_options(ipp_t *driver_attrs,
++					      char *buf, int bufsize);
+ extern bool   pr_driver_setup(pappl_system_t *system, const char *driver_name,
+ 			      const char *device_uri, const char *device_id,
+ 			      pappl_pr_driver_data_t *driver_data,
+diff --git a/pappl-retrofit/web-interface.c b/pappl-retrofit/web-interface.c
+index b961a4d..c8ad219 100644
+--- a/pappl-retrofit/web-interface.c
++++ b/pappl-retrofit/web-interface.c
+@@ -205,16 +205,17 @@ pr_printer_web_device_config(
  	// Get current settings of the "Installable Options"
  	num_installables = 0;
  	installables = NULL;
 -	if ((attr = ippFindAttribute(driver_attrs,
 -				     "installable-options-default",
 -				     IPP_TAG_ZERO)) != NULL)
-+	if (ps_get_installable_options(driver_attrs, buf, sizeof(buf)))
++	if (pr_get_installable_options(driver_attrs, buf, sizeof(buf)))
  	{
 -	  if (ippAttributeString(attr, buf, sizeof(buf)) > 0)
 +	  if (buf[0])
