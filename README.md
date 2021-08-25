@@ -273,7 +273,8 @@ ps-printer-app --help
 
 for more options.
 
-Use the "--debug" argument for verbose logging in your terminal window.
+Use the "-o log-level=debug" argument for verbose logging in your
+terminal window.
 
 
 ## BUILDING WITHOUT SNAP
