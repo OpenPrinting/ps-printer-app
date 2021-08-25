@@ -1,7 +1,7 @@
 #
 # Makefile for the PostScript Printer Application
 #
-# Copyright © 2020 by Till Kamppeter
+# Copyright © 2020-2021 by Till Kamppeter
 # Copyright © 2020 by Michael R Sweet
 #
 # Licensed under Apache License v2.0.  See the file "LICENSE" for more
@@ -11,13 +11,18 @@
 # Version and
 VERSION		=	1.0
 prefix		=	$(DESTDIR)/usr
+localstatedir	=	$(DESTDIR)/var
 includedir	=	$(prefix)/include
 bindir		=	$(prefix)/bin
 libdir		=	$(prefix)/lib
 mandir		=	$(prefix)/share/man
 ppddir		=	$(prefix)/share/ppd
+statedir	=	$(localstatedir)/lib/ps-printer-app
+spooldir	=	$(localstatedir)/spool/ps-printer-app
+serverbin	=	$(prefix)/lib/ps-printer-app
 resourcedir	=	$(prefix)/share/ps-printer-app
-unitdir 	:=	`pkg-config --variable=systemdsystemunitdir systemd`
+cupsserverbin	=	`cups-config  --serverbin`
+unitdir 	:=	$(DESTDIR)`pkg-config --variable=systemdsystemunitdir systemd`
 
 
 # Compiler/linker options...
@@ -51,11 +56,23 @@ install:	$(TARGETS)
 	cp ps-printer-app.1 $(mandir)/man1
 	mkdir -p $(ppddir)
 	cp generic-ps-printer.ppd $(ppddir)
+	mkdir -p $(statedir)/ppd
+	mkdir -p $(spooldir)
 	mkdir -p $(resourcedir)
 	cp testpage.ps $(resourcedir)
+	if test "x$(cupsserverbin)" != x; then \
+	  mkdir -p $(libdir); \
+	  touch $(serverbin) 2> /dev/null || :; \
+	  if rm $(serverbin) 2> /dev/null; then \
+	    ln -s $(cupsserverbin) $(serverbin); \
+	  fi; \
+	else \
+	  mkdir -p $(serverbin)/filter; \
+	  mkdir -p $(serverbin)/backend; \
+	fi
 	if test "x$(unitdir)" != x; then \
-	mkdir -p $(unitdir); \
-	cp ps-printer-app.service $(unitdir); \
+	  mkdir -p $(unitdir); \
+	  cp ps-printer-app.service $(unitdir); \
 	fi
 
 ps-printer-app:	$(OBJS)
