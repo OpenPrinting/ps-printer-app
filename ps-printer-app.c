@@ -116,7 +116,9 @@ main(int  argc,				// I - Number of command-line arguments
     stream_formats,
     "",
     "",
-    TESTPAGE
+    TESTPAGE,
+    NULL,
+    NULL
   };
 
   return (pr_retrofit_printer_app(&printer_app_config, argc, argv));
