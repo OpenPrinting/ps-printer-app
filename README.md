@@ -98,7 +98,7 @@ Further properties are:
   `print-quality` (`draft`/`normal`/`high`), and
   `print-content-optimize`
   (`auto`/`photo`/`graphics`/`text`/`text-and-graphics`) in the PPD of
-  the current printer. So you ahve easy access to the full quality or
+  the current printer. So you have easy access to the full quality or
   speed of your printer without needing to deal with printer-specific
   option settings (the original options are still accessible via web
   admin interface).
