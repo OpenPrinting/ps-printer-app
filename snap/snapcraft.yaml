@@ -415,7 +415,10 @@ parts:
       - liblcms2-2
       - libtiff5
       - libwebp6
+    stage:
+      - -usr/lib/ps-printer-app
     prime:
+      - -var
       - -usr/share/man
     after: [pappl-retrofit, pappl, cups-filters, foomatic-db, hplip]
 
