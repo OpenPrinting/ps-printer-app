@@ -94,8 +94,8 @@ parts:
       - libusb-1.0-0
     prime:
       - -etc/fonts
-      - -lib
       - -var
+      - lib
       - -usr/include
       - -usr/lib/pkgconfig
       - -usr/share/fonts
@@ -124,6 +124,8 @@ parts:
       - autotools-dev
       - pkg-config
       - perl-base
+    stage-packages:
+      - libusb-1.0-0
     prime:
       - -var
       - -usr/bin/test-printer-app
