@@ -69,7 +69,6 @@ parts:
     plugin: autotools
     override-build: |
       set -eux
-      patch -p1 < $SNAPCRAFT_STAGE/patches/pappl-job-process-use-ready-media.patch
       patch -p1 < $SNAPCRAFT_STAGE/patches/pappl-support-text-string-vendor-options.patch
       snapcraftctl build
     autotools-configure-parameters:
