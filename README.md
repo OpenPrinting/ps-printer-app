@@ -154,9 +154,6 @@ Further properties are:
   without libppd, the former will allow to create the Snap of this
   Printer Application without downloading and building QPDF
 
-- Better way to download HPLIP for grabbing the PostScript PPD files
-  for HP printers
-
 
 ## THE SNAP
 
