@@ -164,6 +164,7 @@ parts:
   ghostscript:
     source: https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs9540/ghostscript-9.54.0.tar.gz
     plugin: autotools
+    # We only need PostScript output, for converting PDF input
     autotools-configure-parameters:
       - --prefix=/usr
       - --without-x
@@ -195,6 +196,7 @@ parts:
     source: https://github.com/OpenPrinting/cups
     source-type: git
     plugin: autotools
+    # We only need libcups (with headers, ...)
     override-build: |
       set -eux
       ./configure --sysconfdir=/var/snap/ps-printer-app/common/
@@ -255,6 +257,8 @@ parts:
     source: https://github.com/OpenPrinting/cups-filters
     source-type: git
     plugin: autotools
+    # We only need the 3 libraries: libcupsfilters, libppd, and libfontembed
+    # and foomatic-rip (for PIN-protected printing on Ricoh and OEM)
     override-build: |
       set -eux
       ./autogen.sh
@@ -340,12 +344,18 @@ parts:
     plugin: nil
     override-build: |
       set -eux
+      # Remove non-PostScript manufacturer PPD files
       rm -rf db/source/PPD/*/PDF
       rm -rf db/source/PPD/*/PXL
       rm -rf db/source/PPD/*/PCL5
+      # Remove executable bits from PPD files
       find db/source/PPD -executable -type f -print0 | xargs -0 chmod -x || :
+      # Remove non-PPD files from PPD file directories
       find db/source/PPD -type f \! -name '*.ppd' -print0 | xargs -0 rm || :
-      for f in `find db/source/PPD -name '*.ppd'`; do perl -p -i -e 's/^\*CloseUI(\s+)/*CloseUI:\1/' $f; perl -p -i -e 's/\*1284DeviceId/*1284DeviceID/' $f; perl -p -i -e 's/\*(cupsFilter2?:)/\*%\1/' $f; done
+      # Correct common errors in PPD files: "*CloseUI" without ':' and
+      # "*1284DeviceId" instead of "*1284DeviceID"
+      for f in `find db/source/PPD -name '*.ppd'`; do perl -p -i -e 's/^\*CloseUI(\s+)/*CloseUI:\1/' $f; perl -p -i -e 's/\*1284DeviceId/*1284DeviceID/' $f; done
+      # Compress the PostScript PPDs in a self-extracting archive
       $SNAPCRAFT_STAGE/bin/pyppd -v -o ../install/foomatic-ps-ppds db/source/PPD
       snapcraftctl build
     build-packages:
@@ -377,10 +387,16 @@ parts:
       cd ../..
       mkdir -p ../install
       cp prnt/hpps/hpps ../install
+      # Remove executable bits from PPD files
       find prnt/ps -executable -type f -print0 | xargs -0 chmod -x || :
+      # Remove non-PPD files from PPD file directories
       find prnt/ps -type f \! -name '*.ppd*' -print0 | xargs -0 rm || :
+      # Unzip the PPD files
       find prnt/ps -type f -name '*.ppd.gz' -print0 | xargs -0 gunzip || :
-      for f in `find prnt/ps -name '*.ppd'`; do perl -p -i -e 's/^\*CloseUI(\s+)/*CloseUI:\1/' $f; perl -p -i -e 's/\*1284DeviceId/*1284DeviceID/' $f; perl -p -i -e 's/\*(cupsFilter2?:)/\*%\1/' $f; done
+      # Correct common errors in PPD files: "*CloseUI" without ':' and
+      # "*1284DeviceId" instead of "*1284DeviceID"
+      for f in `find prnt/ps -name '*.ppd'`; do perl -p -i -e 's/^\*CloseUI(\s+)/*CloseUI:\1/' $f; perl -p -i -e 's/\*1284DeviceId/*1284DeviceID/' $f; done
+      # Compress the PostScript PPDs in a self-extracting archive
       $SNAPCRAFT_STAGE/bin/pyppd -v -o ../install/hplip-ps-ppds prnt/ps
       snapcraftctl build
     build-packages:
@@ -408,6 +424,19 @@ parts:
     source: .
     make-parameters:
       - LDFLAGS="$LDFLAGS -ljpeg"
+    # To improve convenience for developers (and everyone who wants to
+    # build from source), we do a "make clean" before "make" here,
+    # because if we had done "make" off-Snap, directly in the source
+    # tree and afterwards build the Snap with snapcraft, the build
+    # sucks in our local binary of ps-printer-app instead of
+    # compiling its own one in the Snap harness with the appropriate
+    # libraries, ending up with the Snap containing an executable
+    # which does not work inside the Snap. The "make clean" removes
+    # any accidentally grabbed binary.
+    override-build: |
+      set -eux
+      make clean
+      snapcraftctl build
     build-packages:
       - libusb-1.0-0-dev
     stage-packages:
