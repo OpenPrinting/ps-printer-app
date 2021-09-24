@@ -108,14 +108,17 @@ main(int  argc,				// I - Number of command-line arguments
       SYSTEM_VERSION_ARR_3
     },
     SYSTEM_WEB_IF_FOOTER,
-    PR_COPTIONS_QUERY_PS_DEFAULTS | PR_COPTIONS_WEB_ADD_PPDS,
+    PR_COPTIONS_QUERY_PS_DEFAULTS |
+    PR_COPTIONS_WEB_ADD_PPDS |
+    PR_COPTIONS_NO_PAPPL_BACKENDS |
+    PR_COPTIONS_CUPS_BACKENDS,
     ps_autoadd,
     pr_identify,
     pr_testpage,
     spooling_conversions,
     stream_formats,
     "",
-    "",
+    "snmp,dnssd,usb",
     TESTPAGE,
     NULL,
     NULL

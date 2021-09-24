@@ -72,10 +72,9 @@ Further properties are:
   PPDs blows up the size of the Snap, we highly compress them using
   [pyppd](https://github.com/OpenPrinting/pyppd). Note that some PPDs
   use certain CUPS filters for extra functionality. These filters are
-  not included, so only the basic functionality is supported then (in
-  most cases only PIN-protected printing gets lost by this). The user
-  can add additional PPDs without needing to rebuild the Snap (see
-  below).
+  included in the Snap, so the extra functionality is supported (in
+  most cases PIN-protected printing). The user can add additional PPDs
+  without needing to rebuild the Snap (see below).
 
 - We use the printer's IEEE-1284 device ID to identify at first that
   it is a PostScript printer (via CMD: field) to see whether it is
@@ -120,6 +119,19 @@ Further properties are:
   PostScript code into the PPD file, together with the queriable option.
   These queries are supported by the web interface of the Printer
   Application.
+
+- Available printer devices are discovered (and used) with CUPS'
+  backends and not with PAPPL's own backends. This way quirk
+  workarounds for USB printers with compatibility problems are used
+  (and are editable) and PostScript output can get sent to the printer
+  via IPP, IPPS (encrypted!), and LPD in addition to socket (usually
+  port 9100). The SNMP backend can get configured (community, address
+  scope).
+
+- If you have an unusual system configuration or a personal firewall
+  your printer will perhaps not get discovered. In this situation the
+  fully manual "Network Printer" entry in combination with the
+  hostname/IP field can be helpful.
 
 
 ### Remark
@@ -273,6 +285,14 @@ for more options.
 Use the "-o log-level=debug" argument for verbose logging in your
 terminal window.
 
+You can add files to `/var/snap/ps-printer-app/common/usb/` for
+additional USB quirk rules. Edit the existing files only for quick
+tests, as they get replaced at every update of the Snap (to introduce
+new rules).
+
+You can edit the `/var/snap/ps-printer-app/common/cups/snmp.conf` file
+for configuring SNMP network printer discovery.
+
 
 ## BUILDING WITHOUT SNAP
 
@@ -324,6 +344,18 @@ PPD_PATHS=/path/to/my/ppds:/my/second/place ./ps-printer-app server
 Simply put a colon-separated list of any amount of paths into the
 variable, always the last being used by the "Add PPD files"
 page. Creating a wrapper script is recommended.
+
+This Printer Application uses CUPS' backends and not PAPPL's, meaning
+that for USB printers CUPS' USB quirk workarounds for compatibility
+problems are used, network printers can also be used with IPP, IPPS,
+and LPD protocols, and SNMP printer discovery is configurable.
+
+USB Quirk rules in `/usr/share/cups/usb` and the `/etc/cups/snmp.conf`
+file can get edited if needed.
+
+Make sure you have CUPS (at least its backends) installed.
+
+You also need Ghostscript to print PDF jobs.
 
 For access to the test page `testpage.ps` use the TESTPAGE_DIR
 environment variable:
