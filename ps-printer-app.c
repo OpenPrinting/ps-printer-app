@@ -115,6 +115,8 @@ main(int  argc,				// I - Number of command-line arguments
     ps_autoadd,
     pr_identify,
     pr_testpage,
+    pr_setup_add_ppd_files_page,
+    pr_setup_device_settings_page,
     spooling_conversions,
     stream_formats,
     "",
