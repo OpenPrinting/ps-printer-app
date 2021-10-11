@@ -43,26 +43,6 @@ parts:
       '*.patch' : patches/
     override-prime: ""
 
-  jpeglib:
-    plugin: autotools
-    source: https://www.ijg.org/files/jpegsrc.v9d.tar.gz
-    source-type: tar
-    autotools-configure-parameters:
-      - --prefix=/usr
-    prime:
-      - -etc/fonts
-      - -var
-      - -usr/include
-      - -usr/lib/pkgconfig
-      - -usr/share/fonts
-      - -usr/share/man
-      - -usr/share/doc
-      - -usr/share/doc-base
-      - -usr/share/lintian
-      - -snap
-      - usr/lib/libjpeg.so.9
-      - usr/lib/libjpeg.so.9.4.0
-
   pappl:
     source: https://github.com/michaelrsweet/pappl
     source-type: git
@@ -82,6 +62,9 @@ parts:
       # Printer" device on the "Add Printer" page of the web interface use a
       # "cups:socket://..." URI instead of simply "socket://..."
       perl -p -i -e 's/(httpAssembleURI\(.*?)"socket"(.*?\))/\1"cups:socket"\2/' pappl/system-webif.c
+      # PAPPL's build system does not insert the LDFLAGS when linking.
+      # Patching Makedefs.in to fix this
+      perl -p -i -e 's/^(\s*DSOFLAGS\s*=\s*\S*\s+)/\1\$\(LDFLAGS\) /' Makedefs.in
       snapcraftctl build
     autotools-configure-parameters:
       - --prefix=/usr
@@ -117,7 +100,7 @@ parts:
       - -usr/share/lintian
       - -snap
       - usr/lib/libpappl.so.1
-    after: [patches, jpeglib]
+    after: [patches, cups]
 
   pappl-retrofit:
     source: https://github.com/openprinting/pappl-retrofit
@@ -204,6 +187,7 @@ parts:
       - -snap
     organize:
       snap/ps-printer-app/current/usr/share: usr/share
+    after: [cups]
 
   cups:
     source: https://github.com/OpenPrinting/cups
@@ -326,6 +310,7 @@ parts:
       - liblcms2-dev
       - libpoppler-cpp-dev
       - libpng-dev
+      - libjpeg-dev
       - libtiff5-dev
       - zlib1g-dev
       - libfontconfig1-dev
@@ -363,7 +348,7 @@ parts:
       - -usr/lib/libfontembed.so.1.0.0
       - usr/bin/pdftops
       - usr/lib/ps-printer-app
-    after: [jpeglib, cups, qpdf, ghostscript]
+    after: [cups, qpdf, ghostscript]
 
   pyppd:
     source: https://github.com/OpenPrinting/pyppd
