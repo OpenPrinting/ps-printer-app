@@ -1,2 +1,18 @@
 #!/bin/sh
+
+#set -e -x
+
+# Create directories and define environment variables
+mkdir -p $SNAP_COMMON/usb
+mkdir -p $SNAP_COMMON/cups
+export BACKEND_DIR=$SNAP/usr/lib/ps-printer-app/backend
+export USB_QUIRK_DIR=$SNAP_COMMON
+export CUPS_SERVERROOT=$SNAP_COMMON/cups
+
+# Initialize config files of the CUPS backends
+cp $BACKEND_DIR/*.usb-quirks $USB_QUIRK_DIR/usb 2>/dev/null || :
+if [ ! -f $CUPS_SERVERROOT/snmp.conf ]; then
+    cp $BACKEND_DIR/snmp.conf $CUPS_SERVERROOT 2>/dev/null || :
+fi
+
 exec $SNAP/scripts/run-ps-printer-app -o log-file=$SNAP_COMMON/ps-printer-app.log server "$@"
