@@ -48,6 +48,7 @@ ps_autoadd(const char *device_info,	// I - Device name (unused)
   pr_printer_app_global_data_t *global_data =
     (pr_printer_app_global_data_t *)data;
   const char	*ret = NULL;		// Return value
+  char          *p;
 
 
   (void)device_info;
@@ -62,7 +63,16 @@ ps_autoadd(const char *device_info,	// I - Device name (unused)
   // add-on module, so there are printers with the same model name but
   // with and without PostScript support. So we auto-add printers only
   // if their device ID explicitly tells that they do PostScript
-  if (pr_supports_postscript(device_id))
+  // We only make an exception on device IDs which do not inform about
+  // the printer's PDLs at all (no "CMD:" or "COMMAND SET:" fields)
+  // allowing them always. This is because some backends do not
+  // obtain the device ID from the printer but obtain make and model
+  // by another method and make an artificial device ID from them.
+  if ((strncmp(device_id, "CMD:", 4) &&
+       strncmp(device_id, "COMMAND SET:", 12) &&
+       strstr(device_id, ";CMD:") == NULL &&
+       strstr(device_id, ";COMMAND SET:") == NULL) ||
+      pr_supports_postscript(device_id))
     // Printer supports PostScript, so find the best-matching PPD file
     ret = pr_best_matching_ppd(device_id, global_data);
   else
