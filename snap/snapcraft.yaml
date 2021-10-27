@@ -90,7 +90,9 @@ parts:
     prime:
       - -etc/fonts
       - -var
-      - lib
+      - lib/*/lib*.so*
+      - usr/lib/lib*.so*
+      - usr/lib/*/lib*.so*
       - -usr/include
       - -usr/lib/pkgconfig
       - -usr/share/fonts
@@ -99,7 +101,6 @@ parts:
       - -usr/share/doc-base
       - -usr/share/lintian
       - -snap
-      - usr/lib/libpappl.so.1
     after: [patches, cups]
 
   pappl-retrofit:
@@ -122,6 +123,9 @@ parts:
     stage-packages:
       - libusb-1.0-0
     prime:
+      - lib/*/lib*.so*
+      - usr/lib/lib*.so*
+      - usr/lib/*/lib*.so*
       - -var
       - -usr/bin/test-printer-app
       - -usr/include
@@ -142,6 +146,9 @@ parts:
     stage-packages:
       - libjpeg-turbo8
     prime:
+      - lib/*/lib*.so*
+      - usr/lib/lib*.so*
+      - usr/lib/*/lib*.so*
       - -etc/fonts
       - -var
       - -usr/include
@@ -175,6 +182,10 @@ parts:
       - libfreetype6
       - libpng16-16
     prime:
+      - usr/bin/gs
+      - lib/*/lib*.so*
+      - usr/lib/*/lib*.so*
+      - usr/share/ghostscript
       - -etc/fonts
       - -var
       - -usr/include
@@ -205,18 +216,18 @@ parts:
       perl -p -i -e 's/"CUPS_DATADIR"/"USB_QUIRK_DIR"/' usb-libusb.c
       make snmp dnssd socket ipp ipps lpd usb
       cd ..
-      mkdir -p $SNAPCRAFT_STAGE/usr/lib
-      cp cups/libcups*.a $SNAPCRAFT_STAGE/usr/lib/
-      cp cups/libcups*.so* $SNAPCRAFT_STAGE/usr/lib/
-      mkdir -p $SNAPCRAFT_STAGE/usr/include/cups
-      cp cups/*.h $SNAPCRAFT_STAGE/usr/include/cups/
-      mkdir -p $SNAPCRAFT_STAGE/usr/bin
-      cp cups-config $SNAPCRAFT_STAGE/usr/bin/
-      mkdir -p $SNAPCRAFT_STAGE/usr/lib/ps-printer-app/backend/
+      mkdir -p $SNAPCRAFT_PART_INSTALL//usr/lib
+      cp cups/libcups*.a $SNAPCRAFT_PART_INSTALL/usr/lib/
+      cp cups/libcups*.so* $SNAPCRAFT_PART_INSTALL/usr/lib/
+      mkdir -p $SNAPCRAFT_PART_INSTALL/usr/include/cups
+      cp cups/*.h $SNAPCRAFT_PART_INSTALL/usr/include/cups/
+      mkdir -p $SNAPCRAFT_PART_INSTALL/usr/bin
+      cp cups-config $SNAPCRAFT_PART_INSTALL/usr/bin/
+      mkdir -p $SNAPCRAFT_PART_INSTALL/usr/lib/ps-printer-app/backend/
       ( cd backend; \
-        cp snmp dnssd socket ipp ipps lpd usb org.cups.usb-quirks $SNAPCRAFT_STAGE/usr/lib/ps-printer-app/backend/ \
+        cp snmp dnssd socket ipp ipps lpd usb org.cups.usb-quirks $SNAPCRAFT_PART_INSTALL/usr/lib/ps-printer-app/backend/ \
       )
-      cp conf/snmp.conf $SNAPCRAFT_STAGE/usr/lib/ps-printer-app/backend/
+      cp conf/snmp.conf $SNAPCRAFT_PART_INSTALL/usr/lib/ps-printer-app/backend/
       #snapcraftctl build
     build-packages:
       - patch
@@ -257,18 +268,10 @@ parts:
       - -usr/share/doc
       - -usr/share/doc-base
       - -usr/share/lintian
-      - usr/lib
-      - usr/lib/libcups.so.2
-      - usr/lib/libcupsimage.so.2
-      - usr/lib/ps-printer-app/backend/snmp
-      - usr/lib/ps-printer-app/backend/dnssd
-      - usr/lib/ps-printer-app/backend/socket
-      - usr/lib/ps-printer-app/backend/ipp
-      - usr/lib/ps-printer-app/backend/ipps
-      - usr/lib/ps-printer-app/backend/lpd
-      - usr/lib/ps-printer-app/backend/usb
-      - usr/lib/ps-printer-app/backend/org.cups.usb-quirks
-      - usr/lib/ps-printer-app/backend/snmp.conf
+      - lib/*/lib*.so*
+      - usr/lib/lib*.so*
+      - usr/lib/*/lib*.so*
+      - usr/lib/ps-printer-app/backend/*
 
   cups-filters:
     source: https://github.com/OpenPrinting/cups-filters
@@ -284,18 +287,18 @@ parts:
       make libcupsfilters.la
       make libfontembed.la
       make foomatic-rip
-      mkdir -p $SNAPCRAFT_STAGE/usr/lib
-      cp .libs/lib* $SNAPCRAFT_STAGE/usr/lib/
-      mkdir -p ../install
-      cp .libs/foomatic-rip ../install
-      mkdir -p $SNAPCRAFT_STAGE/usr/include/ppd
-      cp ppd/*.h $SNAPCRAFT_STAGE/usr/include/ppd/
-      mkdir -p $SNAPCRAFT_STAGE/usr/include/cupsfilters
-      cp cupsfilters/*.h $SNAPCRAFT_STAGE/usr/include/cupsfilters/
-      mkdir -p $SNAPCRAFT_STAGE/usr/include/fontembed
-      cp fontembed/*.h $SNAPCRAFT_STAGE/usr/include/fontembed/
-      mkdir -p $SNAPCRAFT_STAGE/usr/lib/pkgconfig
-      cp *.pc $SNAPCRAFT_STAGE/usr/lib/pkgconfig/
+      mkdir -p $SNAPCRAFT_PART_INSTALL/usr/lib
+      cp .libs/lib* $SNAPCRAFT_PART_INSTALL/usr/lib/
+      mkdir -p $SNAPCRAFT_PART_INSTALL
+      cp .libs/foomatic-rip $SNAPCRAFT_PART_INSTALL
+      mkdir -p $SNAPCRAFT_PART_INSTALL/usr/include/ppd
+      cp ppd/*.h $SNAPCRAFT_PART_INSTALL/usr/include/ppd/
+      mkdir -p $SNAPCRAFT_PART_INSTALL/usr/include/cupsfilters
+      cp cupsfilters/*.h $SNAPCRAFT_PART_INSTALL/usr/include/cupsfilters/
+      mkdir -p $SNAPCRAFT_PART_INSTALL/usr/include/fontembed
+      cp fontembed/*.h $SNAPCRAFT_PART_INSTALL/usr/include/fontembed/
+      mkdir -p $SNAPCRAFT_PART_INSTALL/usr/lib/pkgconfig
+      cp *.pc $SNAPCRAFT_PART_INSTALL/usr/lib/pkgconfig/
       #snapcraftctl build
     build-packages:
       - gettext
@@ -339,13 +342,10 @@ parts:
       - -usr/share/doc
       - -usr/share/doc-base
       - -usr/share/lintian
-      - usr/lib
-      - usr/lib/libcupsfilters.so.1
-      - -usr/lib/libcupsfilters.so.1.0.0
-      - usr/lib/libppd.so.1
-      - -usr/lib/libppd.so.1.0.0
-      - usr/lib/libfontembed.so.1
-      - -usr/lib/libfontembed.so.1.0.0
+      - lib/*/lib*.so*
+      - usr/lib/lib*.so*
+      - usr/lib/*/lib*.so*
+      - usr/lib/*/nss
       - usr/bin/pdftops
       - usr/lib/ps-printer-app
     after: [cups, qpdf, ghostscript]
@@ -374,7 +374,7 @@ parts:
       # "*1284DeviceId" instead of "*1284DeviceID"
       for f in `find db/source/PPD -name '*.ppd'`; do perl -p -i -e 's/^\*CloseUI(\s+)/*CloseUI:\1/' $f; perl -p -i -e 's/\*1284DeviceId/*1284DeviceID/' $f; done
       # Compress the PostScript PPDs in a self-extracting archive
-      $SNAPCRAFT_STAGE/bin/pyppd -v -o ../install/foomatic-ps-ppds db/source/PPD
+      $SNAPCRAFT_STAGE/bin/pyppd -v -o $SNAPCRAFT_PART_INSTALL/foomatic-ps-ppds db/source/PPD
       snapcraftctl build
     build-packages:
       - perl-base
@@ -389,7 +389,10 @@ parts:
       - usr/bin
       - usr/share/ppd
     prime:
-      - usr/bin
+      - usr/bin/xz
+      - -usr/bin/pdb3
+      - -usr/bin/pydoc3
+      - -usr/bin/pygettext3
       - usr/share/ppd
     after: [pyppd]
 
@@ -403,8 +406,8 @@ parts:
       gcc -o hpps *.c -I. -I$SNAPCRAFT_STAGE/usr/include/ -L$SNAPCRAFT_STAGE/usr/lib/ -lcups
       rm config.h
       cd ../..
-      mkdir -p ../install
-      cp prnt/hpps/hpps ../install
+      mkdir -p $SNAPCRAFT_PART_INSTALL
+      cp prnt/hpps/hpps $SNAPCRAFT_PART_INSTALL
       # Remove executable bits from PPD files
       find prnt/ps -executable -type f -print0 | xargs -0 chmod -x || :
       # Remove non-PPD files from PPD file directories
@@ -415,7 +418,7 @@ parts:
       # "*1284DeviceId" instead of "*1284DeviceID"
       for f in `find prnt/ps -name '*.ppd'`; do perl -p -i -e 's/^\*CloseUI(\s+)/*CloseUI:\1/' $f; perl -p -i -e 's/\*1284DeviceId/*1284DeviceID/' $f; done
       # Compress the PostScript PPDs in a self-extracting archive
-      $SNAPCRAFT_STAGE/bin/pyppd -v -o ../install/hplip-ps-ppds prnt/ps
+      $SNAPCRAFT_STAGE/bin/pyppd -v -o $SNAPCRAFT_PART_INSTALL/hplip-ps-ppds prnt/ps
       snapcraftctl build
     build-packages:
       - perl-base
@@ -432,7 +435,10 @@ parts:
       - usr/share/ppd
       - usr/lib/ps-printer-app
     prime:
-      - usr/bin
+      - usr/bin/xz
+      - -usr/bin/pdb3
+      - -usr/bin/pydoc3
+      - -usr/bin/pygettext3
       - usr/share/ppd
       - usr/lib/ps-printer-app
     after: [cups, pyppd]
@@ -466,6 +472,10 @@ parts:
     stage:
       - -usr/lib/ps-printer-app
     prime:
+      - usr/bin/ps-printer-app
+      - lib/*/lib*.so*
+      - usr/lib/*/lib*.so*
+      - usr/share/ps-printer-app
       - -var
       - -usr/share/man
     after: [pappl-retrofit, pappl, cups-filters, foomatic-db, hplip]
