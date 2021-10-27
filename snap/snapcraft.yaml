@@ -207,6 +207,7 @@ parts:
     # We only need libcups (with headers, ...) and the backends
     override-build: |
       set -eux
+      patch -p1 < $SNAPCRAFT_STAGE/patches/cups-dnssd-backend-socket-only.patch
       ./configure --sysconfdir=/var/snap/ps-printer-app/common/
       cd cups
       make
@@ -216,7 +217,7 @@ parts:
       perl -p -i -e 's/"CUPS_DATADIR"/"USB_QUIRK_DIR"/' usb-libusb.c
       make snmp dnssd socket ipp ipps lpd usb
       cd ..
-      mkdir -p $SNAPCRAFT_PART_INSTALL//usr/lib
+      mkdir -p $SNAPCRAFT_PART_INSTALL/usr/lib
       cp cups/libcups*.a $SNAPCRAFT_PART_INSTALL/usr/lib/
       cp cups/libcups*.so* $SNAPCRAFT_PART_INSTALL/usr/lib/
       mkdir -p $SNAPCRAFT_PART_INSTALL/usr/include/cups
@@ -250,8 +251,10 @@ parts:
       - libpam0g-dev
       - libpaper-dev
       - libpng-dev
+      - libusb-1.0-0-dev
       - perl-base
     stage-packages:
+      - libusb-1.0-0
       - libavahi-common3
       - libavahi-client3
       - libicu66
@@ -272,6 +275,7 @@ parts:
       - usr/lib/lib*.so*
       - usr/lib/*/lib*.so*
       - usr/lib/ps-printer-app/backend/*
+    after: [patches]
 
   cups-filters:
     source: https://github.com/OpenPrinting/cups-filters
