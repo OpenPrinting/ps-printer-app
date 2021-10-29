@@ -299,10 +299,12 @@ parts:
       make libcupsfilters.la
       make libfontembed.la
       make foomatic-rip
+      make pdftops
       mkdir -p $SNAPCRAFT_PART_INSTALL/usr/lib
       cp .libs/lib* $SNAPCRAFT_PART_INSTALL/usr/lib/
       mkdir -p $SNAPCRAFT_PART_INSTALL
       cp .libs/foomatic-rip $SNAPCRAFT_PART_INSTALL
+      cp .libs/pdftops $SNAPCRAFT_PART_INSTALL
       mkdir -p $SNAPCRAFT_PART_INSTALL/usr/include/ppd
       cp ppd/*.h $SNAPCRAFT_PART_INSTALL/usr/include/ppd/
       mkdir -p $SNAPCRAFT_PART_INSTALL/usr/include/cupsfilters
@@ -344,6 +346,7 @@ parts:
       - libwebp6
     organize:
       foomatic-rip: usr/lib/ps-printer-app/filter/foomatic-rip
+      pdftops: usr/lib/ps-printer-app/filter/pdftops
     prime:
       - -etc/fonts
       - -var
