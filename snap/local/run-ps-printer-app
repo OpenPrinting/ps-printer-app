@@ -20,4 +20,4 @@ export SPOOL_DIR=$SNAP_COMMON/spool
 export CUPS_SERVERROOT=$SNAP_COMMON/cups
 export CUPS_SERVERBIN=$SNAP/usr/lib/ps-printer-app
 
-exec $SNAP/usr/bin/ps-printer-app $*
+exec $SNAP/usr/bin/ps-printer-app "$@"
