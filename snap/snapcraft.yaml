@@ -491,6 +491,7 @@ parts:
       - lib/*/lib*.so*
       - usr/lib/*/lib*.so*
       - usr/share/ps-printer-app
+      - usr/share/ppd
       - -var
       - -usr/share/man
     after: [pappl-retrofit, pappl, cups-filters, foomatic-db, hplip]
