@@ -73,8 +73,12 @@ ps_autoadd(const char *device_info,	// I - Device name (unused)
        strstr(device_id, ";CMD:") == NULL &&
        strstr(device_id, ";COMMAND SET:") == NULL) ||
       pr_supports_postscript(device_id))
+  {
     // Printer supports PostScript, so find the best-matching PPD file
     ret = pr_best_matching_ppd(device_id, global_data);
+    if (strcmp(ret, "generic") == 0 && !pr_supports_postscript(device_id))
+      ret = NULL;
+  }
   else
     // Printer does not support PostScript, it is not supported by this
     // Printer Application
