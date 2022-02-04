@@ -143,7 +143,7 @@ parts:
     after: [patches, cups, cups-filters, pappl]
 
   qpdf:
-    source: https://github.com/qpdf/qpdf/releases/download/release-qpdf-10.3.2/qpdf-10.3.2.tar.gz
+    source: https://github.com/qpdf/qpdf/releases/download/release-qpdf-10.5.0/qpdf-10.5.0.tar.gz
     plugin: autotools
     autotools-configure-parameters:
       - --prefix=/usr
@@ -411,7 +411,7 @@ parts:
     after: [pyppd]
 
   hplip:
-    source: https://sourceforge.net/projects/hplip/files/hplip/3.21.8/hplip-3.21.8.tar.gz
+    source: https://sourceforge.net/projects/hplip/files/hplip/3.21.12/hplip-3.21.12.tar.gz
     plugin: nil
     override-build: |
       set -eux
