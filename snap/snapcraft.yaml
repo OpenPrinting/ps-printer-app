@@ -63,6 +63,8 @@ parts:
       # Patching Makedefs.in to fix this
       perl -p -i -e 's/^(\s*DSOFLAGS\s*=\s*\S*\s+)/\1\$\(LDFLAGS\) /' Makedefs.in
       snapcraftctl build
+      # PAPPL misses to install subscription.h
+      cp pappl/subscription.h $SNAPCRAFT_PART_INSTALL/usr/include/pappl/
     autotools-configure-parameters:
       - --prefix=/usr
       - --with-papplstatedir=/var/snap/ps-printer-app/common
