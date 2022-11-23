@@ -12,7 +12,7 @@
 // Include necessary headers...
 //
 
-#include <base.h>
+#include <pappl-retrofit.h>
 
 
 //
@@ -72,11 +72,11 @@ ps_autoadd(const char *device_info,	// I - Device name (unused)
        strncmp(device_id, "COMMAND SET:", 12) &&
        strstr(device_id, ";CMD:") == NULL &&
        strstr(device_id, ";COMMAND SET:") == NULL) ||
-      pr_supports_postscript(device_id))
+      prSupportsPostScript(device_id))
   {
     // Printer supports PostScript, so find the best-matching PPD file
-    ret = pr_best_matching_ppd(device_id, global_data);
-    if (strcmp(ret, "generic") == 0 && !pr_supports_postscript(device_id))
+    ret = prBestMatchingPPD(device_id, global_data);
+    if (strcmp(ret, "generic") == 0 && !prSupportsPostScript(device_id))
       ret = NULL;
   }
   else
@@ -102,12 +102,12 @@ main(int  argc,				// I - Number of command-line arguments
 
   // Array of spooling conversions, most desirables first
   spooling_conversions = cupsArrayNew(NULL, NULL);
-  cupsArrayAdd(spooling_conversions, &pr_convert_ps_to_ps);
-  cupsArrayAdd(spooling_conversions, &pr_convert_pdf_to_ps);
+  cupsArrayAdd(spooling_conversions, (void *)&PR_CONVERT_PS_TO_PS);
+  cupsArrayAdd(spooling_conversions, (void *)&PR_CONVERT_PDF_TO_PS);
 
   // Array of stream formats, most desirables first
   stream_formats = cupsArrayNew(NULL, NULL);
-  cupsArrayAdd(stream_formats, &pr_stream_postscript);
+  cupsArrayAdd(stream_formats, (void *)&PR_STREAM_POSTSCRIPT);
 
   // Configuration record of the PostScript Printer Application
   pr_printer_app_config_t printer_app_config =
@@ -127,10 +127,10 @@ main(int  argc,				// I - Number of command-line arguments
     PR_COPTIONS_NO_PAPPL_BACKENDS |
     PR_COPTIONS_CUPS_BACKENDS,
     ps_autoadd,
-    pr_identify,
-    pr_testpage,
-    pr_setup_add_ppd_files_page,
-    pr_setup_device_settings_page,
+    prIdentify,
+    prTestPage,
+    prSetupAddPPDFilesPage,
+    prSetupDeviceSettingsPage,
     spooling_conversions,
     stream_formats,
     "",
@@ -140,5 +140,5 @@ main(int  argc,				// I - Number of command-line arguments
     NULL
   };
 
-  return (pr_retrofit_printer_app(&printer_app_config, argc, argv));
+  return (prRetroFitPrinterApp(&printer_app_config, argc, argv));
 }
