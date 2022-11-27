@@ -33,13 +33,6 @@ apps:
     plugs: [avahi-control, home, network, network-bind, raw-usb]
 
 parts:
-  patches:
-    plugin: dump
-    source: snap/local/
-    organize:
-      '*.patch' : patches/
-    override-prime: ""
-
   pappl:
     source: https://github.com/michaelrsweet/pappl
     source-type: git
@@ -105,6 +98,9 @@ parts:
     plugin: autotools
     autotools-configure-parameters:
       - --prefix=/usr
+    # To find the libraries built in this Snap
+    build-environment:
+      - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SNAPCRAFT_STAGE/usr/lib"
     build-packages:
       - autoconf
       - automake
@@ -133,7 +129,7 @@ parts:
       - -usr/share/doc-base
       - -usr/share/lintian
       - -snap
-    after: [cups, cups-filters, pappl]
+    after: [cups, pappl, libcupsfilters, libppd]
 
   qpdf:
     source: https://github.com/qpdf/qpdf/releases/download/release-qpdf-10.6.3/qpdf-10.6.3.tar.gz
@@ -145,6 +141,10 @@ parts:
       - zlib1g-dev
     stage-packages:
       - libjpeg-turbo8
+    stage:
+      # The *.la file which gets installed by "make install" contains a
+      # wrong prefix, breaking parts of this Snap which use this library
+      - -usr/lib/lib*.la
     prime:
       - lib/*/lib*.so*
       - usr/lib/lib*.so*
@@ -207,7 +207,7 @@ parts:
     # We only need libcups (with headers, ...) and the backends
     override-build: |
       set -eux
-      patch -p1 < $SNAPCRAFT_STAGE/patches/cups-dnssd-backend-socket-only.patch
+      patch -p1 < $SNAPCRAFT_PROJECT_DIR/snap/local/cups-dnssd-backend-socket-only.patch
       # We use "--with-tls=gnutls" here, as current CUPS defaults to SSL here
       # and this is buggy, causing a segfault when serving out a HTTPS web
       # interface page.
@@ -278,34 +278,17 @@ parts:
       - usr/lib/lib*.so*
       - usr/lib/*/lib*.so*
       - usr/lib/ps-printer-app/backend/*
-    after: [patches]
 
-  cups-filters:
-    source: https://github.com/OpenPrinting/cups-filters
+  libcupsfilters:
+    source: https://github.com/OpenPrinting/libcupsfilters
     source-type: git
     plugin: autotools
-    # We only need the 2 libraries: libcupsfilters and libppd
-    # and foomatic-rip (for PIN-protected printing on Ricoh and OEM)
-    override-build: |
-      set -eux
-      ./autogen.sh
-      ./configure --disable-avahi --disable-ldap --disable-foomatic --disable-braille --disable-mutool --without-rcdir --with-pdftops-path=/snap/ps-printer-app/current/usr/bin/pdftops
-      make libppd.la
-      make libcupsfilters.la
-      make foomatic-rip
-      make pdftops
-      mkdir -p $SNAPCRAFT_PART_INSTALL/usr/lib
-      cp .libs/lib* $SNAPCRAFT_PART_INSTALL/usr/lib/
-      mkdir -p $SNAPCRAFT_PART_INSTALL
-      cp .libs/foomatic-rip $SNAPCRAFT_PART_INSTALL
-      cp .libs/pdftops $SNAPCRAFT_PART_INSTALL
-      mkdir -p $SNAPCRAFT_PART_INSTALL/usr/include/ppd
-      cp ppd/*.h $SNAPCRAFT_PART_INSTALL/usr/include/ppd/
-      mkdir -p $SNAPCRAFT_PART_INSTALL/usr/include/cupsfilters
-      cp cupsfilters/*.h $SNAPCRAFT_PART_INSTALL/usr/include/cupsfilters/
-      mkdir -p $SNAPCRAFT_PART_INSTALL/usr/lib/pkgconfig
-      cp *.pc $SNAPCRAFT_PART_INSTALL/usr/lib/pkgconfig/
-      #snapcraftctl build
+    # We only need libcupsfilters itself. so we simply do not prime the
+    # auxiliary files (/usr/share)
+    autotools-configure-parameters:
+      - --prefix=/usr
+      - --disable-avahi
+      - --disable-mutool
     build-packages:
       - gettext
       - autoconf
@@ -314,8 +297,6 @@ parts:
       - pkg-config
       - g++
       - sharutils
-      - poppler-utils
-      - libglib2.0-dev
       - liblcms2-dev
       - libpoppler-cpp-dev
       - libpng-dev
@@ -325,9 +306,7 @@ parts:
       - libfontconfig1-dev
       - libdbus-1-dev
       - libexif-dev
-      - librsvg2-bin
     stage-packages:
-      - poppler-utils
       - libpoppler-cpp0v5
       - libjbig0
       - liblcms2-2
@@ -338,6 +317,97 @@ parts:
       - libtiff5
       - libwebp6
       - libexif12
+    stage:
+      # The *.la file which gets installed by "make install" contains a
+      # wrong prefix, breaking parts of this Snap which use this library
+      - -usr/lib/lib*.la
+    prime:
+      - -etc
+      - -var
+      - -usr/include
+      - -usr/lib/pkgconfig
+       - usr/share/cups
+      - -usr/share/fonts
+      - -usr/share/man
+      - -usr/share/doc
+      - -usr/share/doc-base
+      - -usr/share/lintian
+      - lib/*/lib*.so*
+      - usr/lib/lib*.so*
+      - usr/lib/*/lib*.so*
+      - usr/lib/*/nss
+    after: [cups, qpdf, ghostscript]
+
+  libppd:
+    source: https://github.com/OpenPrinting/libppd
+    source-type: git
+    plugin: autotools
+    # We only need libppd itself, so we also do not prime the auxiliary files
+    # here.
+    autotools-configure-parameters:
+      - --prefix=/usr
+      - --disable-mutool
+      - --disable-pdftocairo
+      - --disable-acroread
+      - --with-pdftops-path=/snap/ps-printer-app/current/usr/bin/pdftops
+    # To find the libraries built in this Snap
+    build-environment:
+      - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SNAPCRAFT_STAGE/usr/lib"
+    build-packages:
+      - gettext
+      - autoconf
+      - automake
+      - autotools-dev
+      - pkg-config
+      - g++
+      - sharutils
+      - poppler-utils
+    prime:
+      - -etc
+      - -var
+      - -usr/include
+      - -usr/lib/pkgconfig
+      - -usr/share/ppdc
+      - -usr/share/fonts
+      - -usr/share/man
+      - -usr/share/doc
+      - -usr/share/doc-base
+      - -usr/share/lintian
+      - lib/*/lib*.so*
+      - usr/lib/lib*.so*
+      - usr/lib/*/lib*.so*
+      - usr/lib/*/nss
+    after: [cups, ghostscript, libcupsfilters]
+
+  cups-filters:
+    source: https://github.com/OpenPrinting/cups-filters
+    source-type: git
+    plugin: autotools
+    # To find the libraries built in this Snap
+    build-environment:
+      - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SNAPCRAFT_STAGE/usr/lib"
+    # We only need pdftops and foomatic-rip (for PIN-protected printing
+    # on Ricoh and OEM)
+    override-build: |
+      set -eux
+      ./autogen.sh
+      ./configure --disable-mutool
+      make foomatic-rip
+      make pdftops
+      mkdir -p $SNAPCRAFT_PART_INSTALL
+      cp foomatic-rip $SNAPCRAFT_PART_INSTALL
+      cp pdftops $SNAPCRAFT_PART_INSTALL
+      #snapcraftctl build
+    build-packages:
+      - gettext
+      - autoconf
+      - automake
+      - autotools-dev
+      - pkg-config
+      - g++
+      - sharutils
+    stage-packages:
+      - poppler-utils
     organize:
       foomatic-rip: usr/lib/ps-printer-app/filter/foomatic-rip
       pdftops: usr/lib/ps-printer-app/filter/pdftops
@@ -357,7 +427,7 @@ parts:
       - usr/lib/*/nss
       - usr/bin/pdftops
       - usr/lib/ps-printer-app
-    after: [cups, qpdf, ghostscript]
+    after: [cups, ghostscript, libcupsfilters, libppd]
 
   pyppd:
     source: https://github.com/OpenPrinting/pyppd
@@ -475,6 +545,9 @@ parts:
     source: .
     make-parameters:
       - LDFLAGS="$LDFLAGS -ljpeg"
+    # To find the libraries built in this Snap
+    build-environment:
+      - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SNAPCRAFT_STAGE/usr/lib"
     # To improve convenience for developers (and everyone who wants to
     # build from source), we do a "make clean" before "make" here,
     # because if we had done "make" off-Snap, directly in the source
@@ -506,7 +579,7 @@ parts:
       - usr/share/ppd
       - -var
       - -usr/share/man
-    after: [pappl-retrofit, pappl, cups-filters, foomatic-db, hplip]
+    after: [pappl-retrofit, pappl, libcupsfilters, libppd, cups-filters, foomatic-db, hplip]
 
   scripts:
     plugin: dump
