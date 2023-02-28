@@ -132,10 +132,10 @@ parts:
     after: [cups, pappl, libcupsfilters, libppd]
 
   qpdf:
-    source: https://github.com/qpdf/qpdf/releases/download/release-qpdf-10.6.3/qpdf-10.6.3.tar.gz
-    plugin: autotools
-    autotools-configure-parameters:
-      - --prefix=/usr
+    source: https://github.com/qpdf/qpdf/releases/download/v11.2.0/qpdf-11.2.0.tar.gz
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_BUILD_TYPE=RelWithDebInfo
     build-packages:
       - g++
       - zlib1g-dev
