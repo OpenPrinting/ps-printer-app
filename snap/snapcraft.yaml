@@ -132,7 +132,7 @@ parts:
     after: [cups, pappl, libcupsfilters, libppd]
 
   qpdf:
-    source: https://github.com/qpdf/qpdf/releases/download/v11.2.0/qpdf-11.2.0.tar.gz
+    source: https://github.com/qpdf/qpdf/releases/download/v11.3.0/qpdf-11.3.0.tar.gz
     plugin: cmake
     cmake-parameters:
       - -DCMAKE_BUILD_TYPE=RelWithDebInfo
