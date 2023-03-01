@@ -443,9 +443,6 @@ parts:
     source: https://github.com/OpenPrinting/foomatic-db
     source-type: git
     plugin: nil
-    # To find the libraries built in this Snap
-    build-environment:
-      - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SNAPCRAFT_STAGE/usr/lib/x86_64-linux-gnu"
     override-build: |
       set -eux
       # Remove non-PostScript manufacturer PPD files
