@@ -100,7 +100,7 @@ parts:
       - --prefix=/usr
     # To find the libraries built in this Snap
     build-environment:
-      - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SNAPCRAFT_STAGE/usr/lib"
+      - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SNAPCRAFT_STAGE/usr/lib/x86_64-linux-gnu"
     build-packages:
       - autoconf
       - automake
@@ -135,8 +135,8 @@ parts:
     source: https://github.com/qpdf/qpdf/releases/download/v11.3.0/qpdf-11.3.0.tar.gz
     plugin: cmake
     cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
       - -DCMAKE_BUILD_TYPE=RelWithDebInfo
-      - -DCMAKE_INSTALL_PREFIX:PATH=/usr
     build-packages:
       - g++
       - zlib1g-dev
@@ -290,6 +290,9 @@ parts:
       - --prefix=/usr
       - --disable-avahi
       - --disable-mutool
+    # To find the libraries built in this Snap
+    build-environment:
+      - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SNAPCRAFT_STAGE/usr/lib"
     build-packages:
       - gettext
       - autoconf
@@ -386,7 +389,7 @@ parts:
     plugin: autotools
     # To find the libraries built in this Snap
     build-environment:
-      - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SNAPCRAFT_STAGE/usr/lib"
+      - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SNAPCRAFT_STAGE/usr/lib/x86_64-linux-gnu"
     # We only need pdftops and foomatic-rip (for PIN-protected printing
     # on Ricoh and OEM)
     override-build: |
@@ -548,7 +551,7 @@ parts:
       - LDFLAGS="$LDFLAGS -ljpeg"
     # To find the libraries built in this Snap
     build-environment:
-      - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SNAPCRAFT_STAGE/usr/lib"
+      - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SNAPCRAFT_STAGE/usr/lib/x86_64-linux-gnu"
     # To improve convenience for developers (and everyone who wants to
     # build from source), we do a "make clean" before "make" here,
     # because if we had done "make" off-Snap, directly in the source
