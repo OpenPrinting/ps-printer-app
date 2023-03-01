@@ -136,6 +136,7 @@ parts:
     plugin: cmake
     cmake-parameters:
       - -DCMAKE_BUILD_TYPE=RelWithDebInfo
+      - -DCMAKE_INSTALL_PREFIX:PATH=/usr
     build-packages:
       - g++
       - zlib1g-dev
