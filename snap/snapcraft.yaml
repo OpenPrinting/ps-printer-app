@@ -36,6 +36,7 @@ parts:
   pappl:
     source: https://github.com/michaelrsweet/pappl
     source-type: git
+    source-depth: 1
     plugin: autotools
     override-build: |
       set -eux
@@ -54,6 +55,9 @@ parts:
       # PAPPL's build system does not insert the LDFLAGS when linking.
       # Patching Makedefs.in to fix this
       perl -p -i -e 's/^(\s*DSOFLAGS\s*=\s*\S*\s+)/\1\$\(LDFLAGS\) /' Makedefs.in
+      # Fix bug of wrong usage of network interface indices on DNS-SD
+      # registration
+      patch -p1 < $SNAPCRAFT_PROJECT_DIR/snap/local/fix-interface-index-usage-in-avahi-calls.patch
       snapcraftctl build
     autotools-configure-parameters:
       - --prefix=/usr
@@ -73,7 +77,9 @@ parts:
       - zlib1g-dev
       - perl-base
     stage-packages:
-      - libavahi-client3
+      # We have libavahi-client3 already in this Snap via the "cups" part,
+      # so here we do not stage it again to avoid any file clashes.
+      #- libavahi-client3
       - libpng16-16
       - libusb-1.0-0
     prime:
@@ -95,12 +101,13 @@ parts:
   pappl-retrofit:
     source: https://github.com/openprinting/pappl-retrofit
     source-type: git
+    source-depth: 1
     plugin: autotools
     autotools-configure-parameters:
       - --prefix=/usr
     # To find the libraries built in this Snap
     build-environment:
-      - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SNAPCRAFT_STAGE/usr/lib/$SNAPCRAFT_ARCH_TRIPLET"
+      - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SNAPCRAFT_STAGE/usr/lib"
     build-packages:
       - autoconf
       - automake
@@ -132,14 +139,22 @@ parts:
     after: [cups, pappl, libcupsfilters, libppd]
 
   qpdf:
-    source: https://github.com/qpdf/qpdf/releases/download/v11.3.0/qpdf-11.3.0.tar.gz
+    source: https://github.com/qpdf/qpdf/releases/download/v11.4.0/qpdf-11.4.0.tar.gz
     plugin: cmake
     cmake-parameters:
-      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DCMAKE_INSTALL_PREFIX=/
+      - -DCMAKE_BUILD_RPATH_USE_ORIGIN=1
+      - -DUSE_IMPLICIT_CRYPTO=0
+      - -DREQUIRE_CRYPTO_GNUTLS=1
+      - -DSHOW_FAILED_TEST_OUTPUT=1
       - -DCMAKE_BUILD_TYPE=RelWithDebInfo
+      - -DQTEST_COLOR=0
     build-packages:
+      - cmake
       - g++
+      - libjpeg-dev
       - zlib1g-dev
+      - libgnutls28-dev
     stage-packages:
       - libjpeg-turbo8
     stage:
@@ -166,7 +181,7 @@ parts:
       - -usr/lib/pkgconfig
 
   ghostscript:
-    source: https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs1000/ghostscript-10.0.0.tar.gz
+    source: https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs10011/ghostscript-10.01.1.tar.gz
     plugin: autotools
     # We only need PostScript output, for converting PDF input
     autotools-configure-parameters:
@@ -204,6 +219,7 @@ parts:
   cups:
     source: https://github.com/OpenPrinting/cups
     source-type: git
+    source-depth: 1
     plugin: autotools
     # We only need libcups (with headers, ...) and the backends
     override-build: |
@@ -283,6 +299,7 @@ parts:
   libcupsfilters:
     source: https://github.com/OpenPrinting/libcupsfilters
     source-type: git
+    source-depth: 1
     plugin: autotools
     # We only need libcupsfilters itself. so we simply do not prime the
     # auxiliary files (/usr/share)
@@ -345,6 +362,7 @@ parts:
   libppd:
     source: https://github.com/OpenPrinting/libppd
     source-type: git
+    source-depth: 1
     plugin: autotools
     # We only need libppd itself, so we also do not prime the auxiliary files
     # here.
@@ -386,10 +404,11 @@ parts:
   cups-filters:
     source: https://github.com/OpenPrinting/cups-filters
     source-type: git
+    source-depth: 1
     plugin: autotools
     # To find the libraries built in this Snap
     build-environment:
-      - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SNAPCRAFT_STAGE/usr/lib/$SNAPCRAFT_ARCH_TRIPLET"
+      - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SNAPCRAFT_STAGE/usr/lib"
     # We only need pdftops and foomatic-rip (for PIN-protected printing
     # on Ricoh and OEM)
     override-build: |
@@ -436,12 +455,14 @@ parts:
   pyppd:
     source: https://github.com/OpenPrinting/pyppd
     source-type: git
+    source-depth: 1
     plugin: python
     override-prime: ""
 
   foomatic-db:
     source: https://github.com/OpenPrinting/foomatic-db
     source-type: git
+    source-depth: 1
     plugin: nil
     override-build: |
       set -eux
@@ -496,9 +517,10 @@ parts:
     # Debian source
     source: https://salsa.debian.org/printing-team/hplip.v2.git
     source-type: git
-    source-branch: debian/3.22.6+dfsg0-1
+    source-branch: debian/3.22.10+dfsg0-2
+    source-depth: 1
     # Upstream source
-    #source: https://sourceforge.net/projects/hplip/files/hplip/3.22.6/hplip-3.22.6.tar.gz
+    #source: https://sourceforge.net/projects/hplip/files/hplip/3.22.10/hplip-3.22.10.tar.gz
     plugin: nil
     override-build: |
       set -eux
@@ -551,7 +573,7 @@ parts:
       - LDFLAGS="$LDFLAGS -ljpeg"
     # To find the libraries built in this Snap
     build-environment:
-      - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SNAPCRAFT_STAGE/usr/lib/$SNAPCRAFT_ARCH_TRIPLET"
+      - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SNAPCRAFT_STAGE/usr/lib"
     # To improve convenience for developers (and everyone who wants to
     # build from source), we do a "make clean" before "make" here,
     # because if we had done "make" off-Snap, directly in the source
