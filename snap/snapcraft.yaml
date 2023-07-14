@@ -1,6 +1,5 @@
 name: ps-printer-app
 base: core22
-version: '1.0'
 summary: PostScript Printer Application
 description: |
   The PostScript Printer Application is a PAPPL (Printer Application Framework) based Printer Application
@@ -9,8 +8,11 @@ description: |
   Printer Applications, which are the recommended replacement for
   printer drivers.
 
-grade: stable
 confinement: strict
+
+# We use the upstream versioning of foomatic-db as it contains most of
+# the manufacturer-supplied PostScript PPD files
+adopt-info: foomatic-db
 
 # Only build on the architectures supported
 architectures:
@@ -178,7 +180,7 @@ parts:
       - -usr/lib/pkgconfig
 
   ghostscript:
-    source: https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs10011/ghostscript-10.01.1.tar.gz
+    source: https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs10012/ghostscript-10.01.2.tar.gz
     plugin: autotools
     # We only need PostScript output, for converting PDF input
     autotools-configure-parameters:
@@ -479,6 +481,35 @@ parts:
     source-type: git
     source-depth: 1
     plugin: nil
+    override-pull: |
+      set -eux
+      # Do the actual pull task
+      craftctl default
+      # Settings:
+      # Grade: stable/devel
+      GRADE=stable
+      # Package release number (integer)
+      PACKAGERELEASE=1
+      # Current upstream version of foomatic-db
+      #
+      # As foomatic-db is simply a collection of printer data and not
+      # some software which is under continuous development and
+      # milestones of the development turn into releases, it is simply
+      # versioned by the date (a cron job on OpenPrinting "releases"
+      # it every day.
+      #
+      # As we want to download it from GIT and not grab a daily
+      # tarball for sake of Snap automation we simply take the date of
+      # the day after the day of the execution of the pull task of
+      # this part as the version number (this is the version in which
+      # the current GIT state would land).
+      sec_after_epoch=`date +%s`
+      upstreamversion="`date -d @$(( $sec_after_epoch + 86400 )) +%Y%m%d`"
+      # Compose version string
+      version="$upstreamversion-$PACKAGERELEASE"
+      # Set version and grade
+      craftctl set version="$version"
+      craftctl set grade="$GRADE"
     override-build: |
       set -eux
       # Remove non-PostScript manufacturer PPD files
@@ -586,6 +617,7 @@ parts:
     source: .
     make-parameters:
       - LDFLAGS="$LDFLAGS -ljpeg"
+      - VERSION="$VERSION"
     # To find the libraries built in this Snap
     build-environment:
       - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$CRAFT_STAGE/usr/lib"
@@ -598,10 +630,21 @@ parts:
     # libraries, ending up with the Snap containing an executable
     # which does not work inside the Snap. The "make clean" removes
     # any accidentally grabbed binary.
+    #
+    # We need to directly call the "make" and "make install" commands
+    # here as we cannot inject an environment variable into the default
+    # build process ("craftctl default") and we also cannot call
+    # "craftctl get version" in the lines of "make-parameters:" or
+    # "build-environment:". This way we get the version number of our
+    # Snap (which is extracted from the foomatic-db upstream source)
+    # into the ps-printer-app executable.
     override-build: |
       set -eux
       make clean
-      craftctl default
+      VERSION="`craftctl get version`"
+      make -j"8" LDFLAGS="$LDFLAGS -ljpeg" VERSION="$VERSION"
+      make -j"8" install LDFLAGS="$LDFLAGS -ljpeg" VERSION="$VERSION" DESTDIR="$CRAFT_PART_INSTALL"
+      #craftctl default
     build-packages:
       - libusb-1.0-0-dev
     stage-packages:
