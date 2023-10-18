@@ -39,6 +39,7 @@ parts:
     source: https://github.com/michaelrsweet/pappl
     source-type: git
     source-depth: 1
+    source-tag: v1.4.2
     plugin: autotools
     override-build: |
       set -eux
@@ -219,6 +220,7 @@ parts:
     source: https://github.com/OpenPrinting/cups
     source-type: git
     source-depth: 1
+    source-tag: v2.4.7
     plugin: autotools
     # We only need libcups (with headers, ...) and the backends
     override-build: |
