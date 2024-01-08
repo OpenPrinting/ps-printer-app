@@ -621,7 +621,7 @@ parts:
     # Debian source
     source: https://salsa.debian.org/printing-team/hplip.v2.git
     source-type: git
-    source-branch: master/main
+    source-branch: debian/3.22.10+dfsg0-2
     source-depth: 1 
     # Excluding hplip from the update automation process because the UpdateSnap script is
     # unable to retrieve the source-tag or source-branch for this repository.
