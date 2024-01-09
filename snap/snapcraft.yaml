@@ -151,7 +151,7 @@ parts:
   qpdf:
     source: https://github.com/qpdf/qpdf/
     source-type: git
-    source-tag: 'v11.7.0'
+    source-tag: 'v11.8.0'
     source-depth: 1
 # ext:updatesnap
 #   version-format:
