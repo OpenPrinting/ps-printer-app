@@ -109,9 +109,7 @@ parts:
     source-depth: 1
 # ext:updatesnap
 #   version-format:
-#     format: '%M.%m%R'
-#     lower-than: '2'
-#     no-9x-revisions: true
+#     format: '%V'
     plugin: autotools
     autotools-configure-parameters:
       - --prefix=/usr
@@ -532,12 +530,13 @@ parts:
   foomatic-db:
     source: https://github.com/OpenPrinting/foomatic-db
     source-type: git
+    source-tag: '20240109'
     source-depth: 1
     # Excluding foomatic-git from the update automation process
     # as it lacks any official releases.
 # ext:updatesnap
 #   version-format:
-#     ignore: true
+#     format: '%V'
     plugin: nil
     override-pull: |
       set -eux
@@ -627,7 +626,7 @@ parts:
     # unable to retrieve the source-tag or source-branch for this repository.
 # ext:updatesnap
 #   version-format:
-#     ignore: true
+#     format: 'debian/%V'
     # Upstream source
     #source: https://sourceforge.net/projects/hplip/files/hplip/3.22.10/hplip-3.22.10.tar.gz
     plugin: nil
