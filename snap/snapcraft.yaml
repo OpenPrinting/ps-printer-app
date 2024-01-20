@@ -550,6 +550,17 @@ parts:
       CHANNEL=stable
       # Force package release number (integer) or "auto"
       PACKAGERELEASE=auto
+      # As foomatic-db is simply a collection of printer data and not
+      # some software which is under continuous development and
+      # milestones of the development turn into releases, it is simply
+      # versioned by the date (a cron job on OpenPrinting "releases"
+      # it every day.
+      #
+      # As we want to download it from GIT and not grab a daily
+      # tarball for sake of Snap automation we simply take the date of
+      # the day after the day of the execution of the pull task of
+      # this part as the version number (this is the version in which
+      # the current GIT state would land).
       # Time stamp of Snap build in Snap Store
       snapbuilddatehuman=`curl -s -H 'Snap-Device-Series: 16' https://api.snapcraft.io/v2/snaps/info/ps-printer-app | jq -r '."channel-map" | .[] | select(.channel.name == "edge") | select(.channel.architecture == "amd64") | ."created-at"'`
       snapbuilddate=`date +%s --date=$snapbuilddatehuman`
