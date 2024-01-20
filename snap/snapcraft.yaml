@@ -105,7 +105,7 @@ parts:
   pappl-retrofit:
     source: https://github.com/openprinting/pappl-retrofit
     source-type: git
-    source-tag: '1.0b2'
+    # source-tag: '1.0b2'
     source-depth: 1
 # ext:updatesnap
 #   version-format:
@@ -215,12 +215,10 @@ parts:
       - --with-drivers=ps2write
       - --enable-freetype
       - --without-tesseract
+      - --without-gpdl
+      - --without-pcl
+      - --without-xps
       - --datarootdir=/snap/ps-printer-app/current/usr/share/
-    override-pull: |
-      set -eux
-      # Do the actual pull task
-      craftctl default
-      rm -rf gpdl pcl xps
     stage-packages:
       - libpaper1
       - libfontconfig1
