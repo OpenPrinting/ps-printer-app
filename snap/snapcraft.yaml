@@ -109,6 +109,7 @@ parts:
     source-depth: 1
 # ext:updatesnap
 #   version-format:
+#     ignore: true
 #     format: '%V'
     plugin: autotools
     autotools-configure-parameters:
