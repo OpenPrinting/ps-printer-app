@@ -633,6 +633,7 @@ parts:
       - python3
       - xz-utils
       - jq
+      - curl
     stage-packages:
       - python3
       - xz-utils
