@@ -534,7 +534,7 @@ parts:
   foomatic-db:
     source: https://github.com/OpenPrinting/foomatic-db
     source-type: git
-    source-tag: '20240109'
+    source-tag: '20240202'
     source-depth: 1
 # ext:updatesnap
 #   version-format:
