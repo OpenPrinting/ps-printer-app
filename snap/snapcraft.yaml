@@ -1,5 +1,7 @@
 name: ps-printer-app
 base: core22
+version: 20240202-2
+grade: stable
 summary: PostScript Printer Application
 description: |
   The PostScript Printer Application is a PAPPL (Printer Application Framework) based Printer Application
@@ -540,79 +542,6 @@ parts:
 #   version-format:
 #     format: '%V'
     plugin: nil
-    override-pull: |
-      set -eux
-      # Do the actual pull task
-      craftctl default
-      # Settings:
-      # Force channel: auto/devel/edge/stable
-      CHANNEL=stable
-      # Force package release number (integer) or "auto"
-      PACKAGERELEASE=auto
-      # As foomatic-db is simply a collection of printer data and not
-      # some software which is under continuous development and
-      # milestones of the development turn into releases, it is simply
-      # versioned by the date (a cron job on OpenPrinting "releases"
-      # it every day.
-      #
-      # As we want to download it from GIT and not grab a daily
-      # tarball for sake of Snap automation we simply take the date of
-      # the day after the day of the execution of the pull task of
-      # this part as the version number (this is the version in which
-      # the current GIT state would land).
-      # Time stamp of Snap build in Snap Store
-      snapbuilddatehuman=`curl -s -H 'Snap-Device-Series: 16' https://api.snapcraft.io/v2/snaps/info/ps-printer-app | jq -r '."channel-map" | .[] | select(.channel.name == "edge") | select(.channel.architecture == "amd64") | ."created-at"'`
-      snapbuilddate=`date +%s --date=$snapbuilddatehuman`
-      if [ -z "$snapbuilddate" ]; then
-          snapbuilddate=0
-      fi
-      # Time stamp of the last GIT commit of the snapping repository
-      pushd $CRAFT_PROJECT_DIR
-      gitcommitdate=`git log -1 --date=unix | grep Date: | perl -p -e 's/Date:\s*//'`
-      popd
-      if [ -z "$gitcommitdate" ]; then
-          gitcommitdate=0
-      fi
-      # Previous stable and development version
-      prevstable="$(curl -s -H 'Snap-Device-Series: 16' https://api.snapcraft.io/v2/snaps/info/ps-printer-app | jq -r '."channel-map" | .[] | select(.channel.name == "stable") | select(.channel.architecture == "'$CRAFT_TARGET_ARCH'") | .version')"
-      if [ -z "$prevstable" ]; then
-          prevstable=0
-      fi
-      prevdevel="$(curl -s -H 'Snap-Device-Series: 16' https://api.snapcraft.io/v2/snaps/info/ps-printer-app | jq -r '."channel-map" | .[] | select(.channel.name == "edge") | select(.channel.architecture == "'$CRAFT_TARGET_ARCH'") | .version')"
-      if [ -z "$prevdevel" ]; then
-          prevdevel=0
-      fi
-      # Previous version in general
-      dpkg --compare-versions "$prevdevel" lt "$prevstable" && prevversion=$prevstable || prevversion=$prevdevel
-      # Current upstream version of foomatic-db
-      # Assuming release tags are in the format YYYYMMDD
-      upstreamversion="$(git describe --tags --always | sed -e 's/^v//;s/-/+git/;s/\([0-9]\{4\}\)\([0-9]\{2\}\)\([0-9]\{2\}\)/\1\2\3/')"
-      # Determine package release number
-      if test "x$PACKAGERELEASE" = "xauto"; then
-          packagerelease=`echo "$prevversion" | perl -p -e 's/^('"$upstreamversion"'\-(\d+)|.*)$/\2/'`
-          if [ -z "$packagerelease" ]; then
-              packagerelease=1
-          else
-              if test "$gitcommitdate" -gt "$snapbuilddate"; then
-                  packagerelease=$(( $packagerelease + 1 ))
-              fi
-          fi
-      else
-          packagerelease=$PACKAGERELEASE
-      fi
-      # Compose version string
-      version="$upstreamversion-$packagerelease"
-      # Select channel
-      if test "x$CHANNEL" = "xedge" -o "x$CHANNEL" = "xdevel"; then
-          grade=devel
-      elif test "x$CHANNEL" = "xstable"; then
-          grade=stable
-      else
-          [ -n "$(echo $version | grep "+git")" ] && grade=devel || grade=stable
-      fi
-      # Set version and grade
-      craftctl set version="$version"
-      craftctl set grade="$grade"
     override-build: |
       set -eux
       # Remove non-PostScript manufacturer PPD files
@@ -633,7 +562,6 @@ parts:
       - perl-base
       - python3
       - xz-utils
-      - jq
       - curl
     stage-packages:
       - python3
