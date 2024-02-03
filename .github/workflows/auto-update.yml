@@ -17,4 +17,4 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           repo: ${{ github.repository }}
-          version-schema: '^(\d{4}\{2}\d{2})'
+          version-schema: '^(\d{8})'
