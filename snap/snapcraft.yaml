@@ -1,6 +1,6 @@
 name: ps-printer-app
 base: core22
-version: '20240209-5'
+version: '20240504-1'
 grade: stable
 summary: PostScript Printer Application
 description: |
@@ -536,7 +536,7 @@ parts:
   foomatic-db:
     source: https://github.com/OpenPrinting/foomatic-db
     source-type: git
-    source-tag: '20240209'
+    source-tag: '20240504'
     source-depth: 1
 # ext:updatesnap
 #   version-format:
