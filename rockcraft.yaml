@@ -27,8 +27,14 @@ services:
     command: /scripts/run-dbus.sh
     override: replace
     on-failure: restart
-    on-success: shutdown
     startup: enabled
+  
+  ps-printer-app:
+    command: ps-printer-app -o log-file=/ps-printer-app.log server
+    override: replace
+    on-failure: restart
+    startup: enabled
+    after: [dbus]
 
 parts:
   pappl:
@@ -61,8 +67,6 @@ parts:
       craftctl default
     autotools-configure-parameters:
       - --prefix=/usr
-    #   - --with-papplstatedir=/var/snap/ps-printer-app/common
-    #   - --with-papplsockdir=/var/snap/ps-printer-app/common/tmp
       - --enable-libjpeg
       - --enable-libpng
       - --enable-libusb
@@ -95,7 +99,6 @@ parts:
       - -usr/share/doc
       - -usr/share/doc-base
       - -usr/share/lintian
-    #   - -snap
     after: [cups]
 
   pappl-retrofit:
@@ -140,7 +143,6 @@ parts:
       - -usr/share/doc
       - -usr/share/doc-base
       - -usr/share/lintian
-    #   - -snap
     after: [cups, pappl, libcupsfilters, libppd]
 
   qpdf:
@@ -215,7 +217,6 @@ parts:
       - --without-gpdl
       - --without-pcl
       - --without-xps
-    #   - --datarootdir=/snap/ps-printer-app/current/usr/share/
     stage-packages:
       - libpaper1
       - libfontconfig1
@@ -235,9 +236,6 @@ parts:
       - -usr/share/doc
       - -usr/share/doc-base
       - -usr/share/lintian
-    #   - -snap
-    # organize:
-    #   snap/ps-printer-app/current/usr/share: usr/share
     after: [cups]
 
   cups:
@@ -416,7 +414,6 @@ parts:
       - --disable-mutool
       - --disable-pdftocairo
       - --disable-acroread
-    #   - --with-pdftops-path=/snap/ps-printer-app/current/usr/bin/pdftops
     # To find the libraries built in this Snap
     build-environment:
       - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$CRAFT_STAGE/usr/lib"
@@ -554,7 +551,7 @@ parts:
       # "*1284DeviceId" instead of "*1284DeviceID"
       for f in `find db/source/PPD -name '*.ppd'`; do perl -p -i -e 's/^\*CloseUI(\s+)/*CloseUI:\1/' $f; perl -p -i -e 's/\*1284DeviceId/*1284DeviceID/' $f; done
       # Compress the PostScript PPDs in a self-extracting archive
-      $CRAFT_STAGE/bin/pyppd -v -o $CRAFT_PART_INSTALL/foomatic-ps-ppds db/source/PPD
+      pyppd -v -o $CRAFT_PART_INSTALL/foomatic-ps-ppds db/source/PPD
       craftctl default
     build-packages:
       - perl-base
@@ -564,6 +561,7 @@ parts:
     stage-packages:
       - python3
       - xz-utils
+      - pyppd
     organize:
       foomatic-ps-ppds: usr/share/ppd/foomatic-ps-ppds
     stage:
@@ -621,7 +619,7 @@ parts:
       # "*1284DeviceId" instead of "*1284DeviceID"
       for f in `find prnt/ps -name '*.ppd'`; do perl -p -i -e 's/^\*CloseUI(\s+)/*CloseUI:\1/' $f; perl -p -i -e 's/\*1284DeviceId/*1284DeviceID/' $f; done
       # Compress the PostScript PPDs in a self-extracting archive
-      $CRAFT_STAGE/bin/pyppd -v -o $CRAFT_PART_INSTALL/hplip-ps-ppds prnt/ps
+      pyppd -v -o $CRAFT_PART_INSTALL/hplip-ps-ppds prnt/ps
       craftctl default
     build-packages:
       - perl-base
@@ -630,6 +628,7 @@ parts:
     stage-packages:
       - python3
       - xz-utils
+      - pyppd
     organize:
       hplip-ps-ppds: usr/share/ppd/hplip-ps-ppds
       hpps: usr/lib/ps-printer-app/filter/hpps
@@ -707,6 +706,12 @@ parts:
       - libnss-mdns
       - mdns-scan
       - dbus
+      - python3
+
+  utils:
+    plugin: nil
+    overlay-packages:
+      - python3
 
   scripts:
     plugin: dump

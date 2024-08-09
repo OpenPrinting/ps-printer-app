@@ -17,8 +17,7 @@ chown root:root /run/dbus
 echo "Starting dbus"
 
 # Start the dbus daemon in the foreground
-dbus-daemon --system --nofork --nopidfile &
-
+service dbus start
 # Check the status of the dbus service
 service dbus status || true
 
@@ -28,4 +27,4 @@ echo "Starting avahi-daemon"
 avahi-daemon --daemonize --no-drop-root
 
 # Keep the script running to avoid container exit
-# tail -f /dev/null1
+tail -f /dev/null
