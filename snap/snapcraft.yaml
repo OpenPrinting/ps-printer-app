@@ -1,6 +1,6 @@
 name: ps-printer-app
 base: core22
-version: '20240504-6'
+version: '20240504-7'
 grade: stable
 summary: PostScript Printer Application
 description: |
@@ -40,7 +40,7 @@ parts:
   pappl:
     source: https://github.com/michaelrsweet/pappl
     source-type: git
-    source-tag: 'v1.4.6'
+    source-tag: 'v1.4.7'
     source-depth: 1
 # ext:updatesnap
 #   version-format:
