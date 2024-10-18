@@ -1,6 +1,6 @@
 name: ps-printer-app
 base: core22
-version: '20240504-7'
+version: '20240504-8'
 grade: stable
 summary: PostScript Printer Application
 description: |
@@ -338,7 +338,7 @@ parts:
   libcupsfilters:
     source: https://github.com/OpenPrinting/libcupsfilters
     source-type: git
-    source-tag: '2.0.0'
+    source-tag: '2.1.0'
     source-depth: 1
 # ext:updatesnap
 #   version-format:
@@ -408,7 +408,7 @@ parts:
   libppd:
     source: https://github.com/OpenPrinting/libppd
     source-type: git
-    source-tag: '2.0.0'
+    source-tag: '2.1.0'
     source-depth: 1
 # ext:updatesnap
 #   version-format:
