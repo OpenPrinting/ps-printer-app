@@ -1,4 +1,4 @@
-name: Pack and Publish OCI Image to Docker Registry
+name: Pack and Publish OCI Image to Docker Registry and GitHub Packages
 
 on:
   push:
@@ -63,6 +63,13 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - name: Log in to GitHub Packages
+        uses: docker/login-action@v3.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build and Push Docker Image
         env:
           USERNAME: ${{ secrets.DOCKER_USERNAME }}
@@ -70,10 +77,17 @@ jobs:
           IMAGE="$(yq '.name' rockcraft.yaml)"
           VERSION="$(yq '.version' rockcraft.yaml)"
           ROCK="$(ls *.rock | tail -n 1)"
+          # Push to Docker Hub
           sudo rockcraft.skopeo --insecure-policy copy oci-archive:"${ROCK}" docker-daemon:"${USERNAME}/${IMAGE}:${VERSION}-edge"
           docker push ${USERNAME}/${IMAGE}:${VERSION}-edge
           docker tag ${USERNAME}/${IMAGE}:${VERSION}-edge ${USERNAME}/${IMAGE}:latest
           docker push ${USERNAME}/${IMAGE}:latest
+          # Push to GitHub Packages
+          GITHUB_IMAGE="ghcr.io/${{ github.repository_owner }}/${IMAGE}"
+          docker tag ${USERNAME}/${IMAGE}:${VERSION}-edge ${GITHUB_IMAGE}:${VERSION}-edge
+          docker push ${GITHUB_IMAGE}:${VERSION}-edge
+          docker tag ${GITHUB_IMAGE}:${VERSION}-edge ${GITHUB_IMAGE}:latest
+          docker push ${GITHUB_IMAGE}:latest
 
   publish-rock-stable:
     needs: build-rock
@@ -106,6 +120,13 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - name: Log in to GitHub Packages
+        uses: docker/login-action@v3.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build and Push Docker Image
         env:
           USERNAME: ${{ secrets.DOCKER_USERNAME }}
@@ -113,5 +134,10 @@ jobs:
           IMAGE="$(yq '.name' rockcraft.yaml)"
           VERSION="$(yq '.version' rockcraft.yaml)"
           ROCK="$(ls *.rock | tail -n 1)"
+          # Push to Docker Hub
           sudo rockcraft.skopeo --insecure-policy copy oci-archive:"${ROCK}" docker-daemon:"${USERNAME}/${IMAGE}:${VERSION}-stable"
           docker push ${USERNAME}/${IMAGE}:${VERSION}-stable
+          # Push to GitHub Packages
+          GITHUB_IMAGE="ghcr.io/${{ github.repository_owner }}/${IMAGE}"
+          docker tag ${USERNAME}/${IMAGE}:${VERSION}-stable ${GITHUB_IMAGE}:${VERSION}-stable
+          docker push ${GITHUB_IMAGE}:${VERSION}-stable
