@@ -14,6 +14,11 @@ on:
         options:
           - edge
           - stable
+          - both
+  workflow_run:
+    workflows: ["Push new tag update to stable branch"]
+    types:
+      - completed
 
 jobs:
   build-rock:
@@ -34,7 +39,7 @@ jobs:
 
   publish-rock-edge:
     needs: build-rock
-    if: github.ref_name == 'main' && (github.event.inputs.workflow_choice == 'edge' || github.event_name == 'push')
+    if: github.ref_name == 'main' && (github.event.inputs.workflow_choice == 'edge' || github.event.inputs.workflow_choice == 'both' || github.event_name == 'push' || github.event_name == 'workflow_run')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -91,7 +96,7 @@ jobs:
 
   publish-rock-stable:
     needs: build-rock
-    if: github.ref_name == 'main' && github.event.inputs.workflow_choice == 'stable'
+    if: github.ref_name == 'main' && (github.event.inputs.workflow_choice == 'stable' || github.event.inputs.workflow_choice == 'both')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
