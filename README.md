@@ -386,3 +386,82 @@ The HP PCL Printer Application is Copyright © 2019-2020 by Michael R Sweet.
 This software is licensed under the Apache License Version 2.0 with an exception
 to allow linking against GPL2/LGPL2 software (like older versions of CUPS).  See
 the files "LICENSE" and "NOTICE" for more information.
+
+# PostScript Printer Application Rock
+
+## Install from Docker Hub
+### Prerequisites
+
+1. **Docker Installed**: Ensure Docker is installed on your system. You can download it from the [official Docker website](https://www.docker.com/get-started).
+
+### Step-by-Step Guide
+
+#### 1. Pull the ps-printer-app docker image:
+
+The first step is to pull the ps-printer-app Docker image from Docker Hub.
+```sh
+sudo docker pull openprinting/ps-printer-app
+```
+
+#### 2. Start the ps-printer-app Container
+
+##### Run the following Docker command to run the ps-printer-app image:
+```sh
+sudo docker run --rm -d --name ps-printer-app -p <port>:8000 \
+    openprinting/ps-printer-app:latest
+```
+
+## Setting Up and Running ps-printer-app locally
+
+### Prerequisites
+
+1. **Docker Installed**: Ensure Docker is installed on your system. You can download it from the [official Docker website](https://www.docker.com/get-started).
+
+2. **Rockcraft**: Rockcraft should be installed. You can install Rockcraft using the following command:
+```sh
+sudo snap install rockcraft --classic
+```
+
+3. **Skopeo**: Skopeo should be installed to compile `.rock` files into Docker images. <br>
+**Note**: It comes bundled with Rockcraft.
+
+### Step-by-Step Guide
+
+#### 1. Build ps-printer-app rock:
+
+The first step is to build the Rock from the `rockcraft.yaml`. This image will contain all the configurations and dependencies required to run ps-printer-app.
+
+Open your terminal and navigate to the directory containing your `rockcraft.yaml`, then run the following command:
+
+```sh
+rockcraft pack -v
+```
+
+#### 2. Compile to Docker Image:
+
+Once the rock is built, you need to compile docker image from it.
+
+```sh
+sudo rockcraft.skopeo --insecure-policy copy oci-archive:<rock_image> docker-daemon:ps-printer-app:latest
+```
+
+#### Run the ps-printer-app Docker Container:
+
+```sh
+sudo docker run --rm -d --name ps-printer-app -p <port>:8000 \
+    ps-printer-app:latest
+```
+
+### Setting up
+
+Enter the web interface
+
+```sh
+http://localhost:<port>/
+```
+
+Use the web interface to add a printer. Supply a name, select the
+discovered printer, then select make and model. Also set the installed
+accessories, loaded media and the option defaults. Accessory
+configuration and option defaults can also offen get polled from the
+printer.
