@@ -309,11 +309,15 @@ sudo docker pull openprinting/ps-printer-app
 ```
 
 Then run the following Docker command to run the ps-printer-app image in a container:
+```sh
+  sudo docker run --rm -d \
+      --name ps-printer-app \
+      --network host \
+      -e PORT:<port> \
+      openprinting/ps-printer-app:latest
 ```
-sudo docker run --rm -d --name ps-printer-app -p <port>:8000 \
-    openprinting/ps-printer-app:latest
-```
-Replace `<port>` by the port number under which you want to access the Printer Applications's web interface (`http://localhost:<port>/`).
+- `PORT` is an optional environment variable used to start the printer-app on a specified port. If not provided, it will start on the default port 8000 or, if port 8000 is busy, on 8001 and so on.
+- **The container must be started in `--network host` mode** to allow the printer-app instance inside the container to access and discover local printers running on the host system.
 
 ### Setting up and running a ps-printer-app container locally
 
@@ -351,11 +355,15 @@ sudo rockcraft.skopeo --insecure-policy copy oci-archive:<rock_image> docker-dae
 
 **Run the ps-printer-app Docker Container**
 
+```sh
+  sudo docker run --rm -d \
+      --name ps-printer-app \
+      --network host \
+      -e PORT:<port> \
+      ps-printer-app:latest
 ```
-sudo docker run --rm -d --name ps-printer-app -p <port>:8000 \
-    ps-printer-app:latest
-```
-Also here you replace `<port>` by the port number under which you want to access the adminstration web interface of the Printer Application.
+- `PORT` is an optional environment variable used to start the printer-app on a specified port. If not provided, it will start on the default port 8000 or, if port 8000 is busy, on 8001 and so on.
+- **The container must be started in `--network host` mode** to allow the printer-app instance inside the container to access and discover local printers running on the host system.
 
 #### Setting up
 
