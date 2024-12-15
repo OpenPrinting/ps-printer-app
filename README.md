@@ -360,7 +360,7 @@ sudo rockcraft.skopeo --insecure-policy copy oci-archive:<rock_image> docker-dae
   sudo docker run --rm -d \
       --name ps-printer-app \
       --network host \
-      -e PORT+<port> \
+      -e PORT=<port> \
       ps-printer-app:latest
 ```
 - `PORT` is an optional environment variable used to start the printer-app on a specified port. If not provided, it will start on the default port 8000 or, if port 8000 is busy, on 8001 and so on.
