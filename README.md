@@ -293,8 +293,93 @@ new rules).
 You can edit the `/var/snap/ps-printer-app/common/cups/snmp.conf` file
 for configuring SNMP network printer discovery.
 
+## THE ROCK (OCI CONTAINER IMAGE)
 
-## BUILDING WITHOUT SNAP
+### Install from DockerHub
+
+#### Prerequisites
+
+**Docker Installed**: Ensure Docker is installed on your system. You can download it from the [official Docker website](https://www.docker.com/get-started).
+
+#### Step-by-Step Guide
+
+The first step is to pull the ps-printer-app Docker image from DockerHub:
+```
+sudo docker pull openprinting/ps-printer-app
+```
+
+Then run the following Docker command to run the ps-printer-app image in a container:
+```sh
+  sudo docker run --rm -d \
+      --name ps-printer-app \
+      --network host \
+      -e PORT:<port> \
+      openprinting/ps-printer-app:latest
+```
+- `PORT` is an optional environment variable used to start the printer-app on a specified port. If not provided, it will start on the default port 8000 or, if port 8000 is busy, on 8001 and so on.
+- **The container must be started in `--network host` mode** to allow the Printer-Application instance inside the container to access and discover printers available in the local network where the host system is in.
+- Alternatively using the internal network of the Docker instance (`-p <port>:8000` instead of `--network host -e PORT:<port>`) only gives access to local printers running on the host system itself.
+
+### Setting up and running a ps-printer-app container locally
+
+#### Prerequisites
+
+**Docker Installed**: Ensure Docker is installed on your system. You can download it from the [official Docker website](https://www.docker.com/get-started) or from the Snap Store:
+```
+sudo snap install docker
+```
+
+**Rockcraft**: Rockcraft should be installed. You can install Rockcraft using the following command:
+```
+sudo snap install rockcraft --classic
+```
+
+**Skopeo**: Skopeo should be installed to compile `*.rock` files into Docker images. It comes bundled with Rockcraft, so no separate installation is required.
+
+#### Step-by-Step Guide
+
+**Build the ps-printer-app Rock**
+
+The first step is to build the Rock from the `rockcraft.yaml`. This image will contain all the configurations and dependencies required to run ps-printer-app.
+
+Open your terminal and navigate to the directory containing your `rockcraft.yaml` (base directory of this package), then run the following command:
+```
+rockcraft pack -v
+```
+
+**Compile to Docker image**
+
+Once the rock is built, you need to compile a docker image from it:
+```
+sudo rockcraft.skopeo --insecure-policy copy oci-archive:<rock_image> docker-daemon:ps-printer-app:latest
+```
+
+**Run the ps-printer-app Docker Container**
+
+```sh
+  sudo docker run --rm -d \
+      --name ps-printer-app \
+      --network host \
+      -e PORT:<port> \
+      ps-printer-app:latest
+```
+- `PORT` is an optional environment variable used to start the printer-app on a specified port. If not provided, it will start on the default port 8000 or, if port 8000 is busy, on 8001 and so on.
+- **The container must be started in `--network host` mode** to allow the Printer-Application instance inside the container to access and discover printers available in the local network where the host system is in.
+- Alternatively using the internal network of the Docker instance (`-p <port>:8000` instead of `--network host -e PORT:<port>`) only gives access to local printers running on the host system itself.
+
+#### Setting up
+
+Enter the web interface:
+```
+http://localhost:<port>/
+```
+Use the web interface to add a printer. Supply a name, select the
+discovered printer, then select automatic driver selection or choose a
+make and model. Also set the installed accessories, loaded media and
+the option defaults. Accessory configuration and option defaults can
+also often get polled from the printer.
+
+## BUILDING WITHOUT PACKAGING OR INSTALLATION
 
 You can also do a "quick-and-dirty" build without snapping and without
 needing to install [PAPPL](https://www.msweet.org/pappl),
@@ -370,7 +455,6 @@ Apple Raster, PWG Raster):
 ```
 TESTPAGE=/path/to/my/testpage/my_testpage.ps PPD_PATHS=/path/to/my/ppds:/my/second/place ./ps-printer-app server
 ```
-
 
 ## LEGAL STUFF
 
