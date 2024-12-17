@@ -80,11 +80,12 @@ jobs:
         if: github.event.inputs.workflow_choice == 'edge' || github.event.inputs.workflow_choice == 'both' || github.event_name == 'push' || github.event_name == 'workflow_run'
         env:
           USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          ORG_NAME: ${{ github.repository_owner }}
+          ORG: ${{ github.repository_owner }}
         run: |
           IMAGE="$(yq '.name' rockcraft.yaml)"
           VERSION="$(yq '.version' rockcraft.yaml)"
           ROCK="$(ls *.rock | tail -n 1)"
+          ORG_NAME=$(echo "${ORG}" | tr '[:upper:]' '[:lower:]')
           sudo rockcraft.skopeo --insecure-policy copy oci-archive:"${ROCK}" docker-daemon:"${ORG_NAME}/${IMAGE}:${VERSION}-edge"
           # Push to Docker Hub
           # docker tag ${ORG_NAME}/${IMAGE}:${VERSION}-edge ${USERNAME}:${VERSION}-edge
@@ -102,13 +103,15 @@ jobs:
         if: github.event.inputs.workflow_choice == 'stable' || github.event.inputs.workflow_choice == 'both'
         env:
           USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          ORG_NAME: ${{ github.repository_owner }}
+          ORG: ${{ github.repository_owner }}
         run: |
             IMAGE="$(yq '.name' rockcraft.yaml)"
             VERSION="$(yq '.version' rockcraft.yaml)"
             ROCK="$(ls *.rock | tail -n 1)"
+            ORG_NAME=$(echo "${ORG}" | tr '[:upper:]' '[:lower:]')
             sudo rockcraft.skopeo --insecure-policy copy oci-archive:"${ROCK}" docker-daemon:"${ORG_NAME}/${IMAGE}:${VERSION}-stable"
             # Push to Docker Hub
+            # docker tag ${ORG_NAME}/${IMAGE}:${VERSION}-stable ${USERNAME}:${VERSION}-stable
             # docker push ${USERNAME}/${IMAGE}:${VERSION}-stable
             # Push to GitHub Packages
             GITHUB_IMAGE="ghcr.io/${ORG_NAME}/${IMAGE}"
