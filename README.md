@@ -303,19 +303,38 @@ for configuring SNMP network printer discovery.
 
 #### Step-by-Step Guide
 
-The first step is to pull the ps-printer-app Docker image from DockerHub:
-```
-sudo docker pull openprinting/ps-printer-app
+You can pull the `ps-printer-app` Docker image from either the GitHub Container Registry or Docker Hub.
+
+**From GitHub Container Registry** <br>
+To pull the image from the GitHub Container Registry, run the following command:
+```sh
+  sudo docker pull ghcr.io/openprinting/ps-printer-app:latest
 ```
 
-Then run the following Docker command to run the ps-printer-app image in a container:
+To run the container after pulling the image from the GitHub Container Registry, use:
 ```sh
-  sudo docker run --rm -d \
+  sudo docker run -d \
+      --name ps-printer-app \
+      --network host \
+      -e PORT=<port> \
+      ghcr.io/openprinting/ps-printer-app:latest
+```
+
+**From Docker Hub** <br>
+Alternatively, you can pull the image from Docker Hub, by running:
+```sh
+  sudo docker pull openprinting/ps-printer-app
+```
+
+To run the container after pulling the image from Docker Hub, use:
+```sh
+  sudo docker run -d \
       --name ps-printer-app \
       --network host \
       -e PORT=<port> \
       openprinting/ps-printer-app:latest
 ```
+
 - `PORT` is an optional environment variable used to start the printer-app on a specified port. If not provided, it will start on the default port 8000 or, if port 8000 is busy, on 8001 and so on.
 - **The container must be started in `--network host` mode** to allow the Printer-Application instance inside the container to access and discover printers available in the local network where the host system is in.
 - Alternatively using the internal network of the Docker instance (`-p <port>:8000` instead of `--network host -e PORT=<port>`) only gives access to local printers running on the host system itself.
@@ -330,8 +349,8 @@ sudo snap install docker
 ```
 
 **Rockcraft**: Rockcraft should be installed. You can install Rockcraft using the following command:
-```
-sudo snap install rockcraft --classic
+```sh
+  sudo snap install rockcraft --classic
 ```
 
 **Skopeo**: Skopeo should be installed to compile `*.rock` files into Docker images. It comes bundled with Rockcraft, so no separate installation is required.
@@ -343,21 +362,21 @@ sudo snap install rockcraft --classic
 The first step is to build the Rock from the `rockcraft.yaml`. This image will contain all the configurations and dependencies required to run ps-printer-app.
 
 Open your terminal and navigate to the directory containing your `rockcraft.yaml` (base directory of this package), then run the following command:
-```
-rockcraft pack -v
+```sh
+  rockcraft pack -v
 ```
 
 **Compile to Docker image**
 
 Once the rock is built, you need to compile a docker image from it:
-```
-sudo rockcraft.skopeo --insecure-policy copy oci-archive:<rock_image> docker-daemon:ps-printer-app:latest
+```sh
+  sudo rockcraft.skopeo --insecure-policy copy oci-archive:<rock_image> docker-daemon:ps-printer-app:latest
 ```
 
 **Run the ps-printer-app Docker Container**
 
 ```sh
-  sudo docker run --rm -d \
+  sudo docker run -d \
       --name ps-printer-app \
       --network host \
       -e PORT=<port> \
