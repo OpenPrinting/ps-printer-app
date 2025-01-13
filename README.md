@@ -398,6 +398,10 @@ make and model. Also set the installed accessories, loaded media and
 the option defaults. Accessory configuration and option defaults can
 also often get polled from the printer.
 
+<!-- Begin Included Components -->
+
+<!-- End Included Components -->
+
 ## BUILDING WITHOUT PACKAGING OR INSTALLATION
 
 You can also do a "quick-and-dirty" build without snapping and without
