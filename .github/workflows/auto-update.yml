@@ -38,3 +38,4 @@ jobs:
           repo: ${{ github.repository }}
           rock-version-schema: '^(\d{8})'
           yaml-path: 'rockcraft.yaml'
+          readme-path: 'README.md'
