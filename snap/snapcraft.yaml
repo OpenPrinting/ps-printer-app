@@ -1,6 +1,6 @@
 name: ps-printer-app
 base: core22
-version: '20240504-8'
+version: '20240504-9'
 grade: stable
 summary: PostScript Printer Application
 description: |
@@ -152,7 +152,7 @@ parts:
   qpdf:
     source: https://github.com/qpdf/qpdf/
     source-type: git
-    source-tag: 'v11.9.1'
+    source-tag: 'v11.10.0'
     source-depth: 1
 # ext:updatesnap
 #   version-format:
