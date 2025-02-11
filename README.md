@@ -409,7 +409,7 @@ also often get polled from the printer.
   - cups-filters 2.0.1
   - pyppd release-1-1-0
   - foomatic-db 20240504
-  - hplip debian/3.22.10+dfsg0-6
+  - hplip debian/3.22.10+dfsg0-7
 <!-- End Included Components -->
 
 ## BUILDING WITHOUT PACKAGING OR INSTALLATION
