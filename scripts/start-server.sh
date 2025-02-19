@@ -9,27 +9,16 @@ if [ -n "${PORT:-}" ]; then
     fi
 fi
 
-# Ensure the /etc/cups/ssl directory exists with proper permissions
-CUPS_SERVERROOT="/etc/cups/ssl"
-if [ ! -d "$CUPS_SERVERROOT" ]; then
-    mkdir -p "$CUPS_SERVERROOT"
-fi
-chmod 755 "$CUPS_SERVERROOT"
+# Wait for avahi-daemon to initialize
+while true; do
+    if [ -f "/var/run/avahi-daemon/pid" ] || [ -f "/run/avahi-daemon/pid" ]; then
+        echo "avahi-daemon is active. Starting ps-printer-app..."
+        break
+    fi
 
-# Ensure /var/lib/ps-printer-app directory exists
-STATE_DIR="/var/lib/ps-printer-app"
-
-if [ ! -d "$STATE_DIR" ]; then
-    mkdir -p "$STATE_DIR"
-fi
-chmod 755 "$STATE_DIR"
-
-# Ensure ps-printer-app.state file exists
-STATE_FILE="$STATE_DIR/ps-printer-app.state"
-if [ ! -f "$STATE_FILE" ]; then
-    touch "$STATE_FILE"
-fi
-chmod 755 "$STATE_FILE"
+    echo "Waiting for avahi-daemon to initialize..."
+    sleep 1
+done
 
 # Start the ps-printer-app server
-ps-printer-app -o log-file=/ps-printer-app.log ${PORT:+-o server-port=$PORT} server
+ps-printer-app -o log-file="/ps-printer-app.log" ${PORT:+-o server-port="$PORT"} server
