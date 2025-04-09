@@ -403,7 +403,7 @@ also often get polled from the printer.
   - pappl v1.4.9
   - qpdf v11.10.1
   - ghostscript ghostpdl-10.05.0-test-base-001
-  - cups v2.4.11
+  - cups v2.4.12
   - libcupsfilters 2.1.1
   - libppd 2.1.1
   - cups-filters 2.0.1
