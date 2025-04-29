@@ -1,6 +1,6 @@
 name: ps-printer-app
 base: core22
-version: '20240504-10'
+version: '20240504-11'
 grade: stable
 summary: PostScript Printer Application
 description: |
@@ -203,7 +203,7 @@ parts:
     #source: https://git.ghostscript.com/ghostpdl.git
     source: https://github.com/ArtifexSoftware/ghostpdl.git
     source-type: git
-    source-tag: 'ghostpdl-10.05.0-test-base-001'
+    source-tag: 'ghostpdl-10.05.1rc1_test002'
     source-depth: 1
 # ext:updatesnap
 #   version-format:
