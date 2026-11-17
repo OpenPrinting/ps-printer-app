@@ -1,0 +1,38 @@
+[Unit]
+Description=PostScript Printer Application (PAPPL / IPP Server)
+Documentation=https://github.com/OpenPrinting/ps-printer-app
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+# Cloud-native OCI image built from Containerfile
+Image=ghcr.io/openprinting/ps-printer-app:latest
+ContainerName=ps-printer-app
+
+# Host networking enables seamless mDNS/DNS-SD discovery across the local subnet
+Network=host
+
+# Direct USB device pass-through for printer hardware access
+AddDevice=/dev/bus/usb:/dev/bus/usb:rwm
+
+# Mount host D-Bus system bus socket to talk directly to host Avahi daemon
+# This registers the IPP service with the host mDNS without spinning up duplicate internal daemons
+Volume=/run/dbus/system_bus_socket:/run/dbus/system_bus_socket:ro
+
+# Persistent storage for configured printer states and print spools
+Volume=ps-printer-app-data:/var/lib/ps-printer-app
+Volume=ps-printer-app-spool:/var/spool/ps-printer-app
+
+# Standard PAPPL IPP server port
+PublishPort=8000:8000
+
+# Security containment: drop root privileges
+DropCapability=ALL
+
+[Service]
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=60s
+
+[Install]
+WantedBy=default.target
