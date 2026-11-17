@@ -26,7 +26,7 @@ RUN dnf install -y \
 
 WORKDIR /build
 
-RUN git clone --depth 1 https://github.com/OpenPrinting/libcups.git \
+RUN git clone --depth 1 --recurse-submodules https://github.com/OpenPrinting/libcups.git \
     && cd libcups \
     && ./configure --prefix=/usr \
     && make -j$(nproc) \
