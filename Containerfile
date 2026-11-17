@@ -54,7 +54,7 @@ COPY . /build/ps-printer-app
 WORKDIR /build/ps-printer-app
 RUN make -j$(nproc) && make install DESTDIR=/build/rootfs
 
-FROM fedora-minimal:41
+FROM quay.io/fedora/fedora-minimal:41
 
 RUN microdnf install -y \
     cups-libs \
