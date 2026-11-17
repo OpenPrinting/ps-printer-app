@@ -42,19 +42,22 @@ RUN git clone --depth 1 https://github.com/michaelrsweet/pappl.git \
 
 RUN git clone --depth 1 https://github.com/OpenPrinting/libcupsfilters.git \
     && cd libcupsfilters \
-    && ./autogen.sh --prefix=/usr \
+    && ./autogen.sh \
+    && ./configure --prefix=/usr \
     && make -j$(nproc) \
     && make install
 
 RUN git clone --depth 1 https://github.com/OpenPrinting/libppd.git \
     && cd libppd \
-    && ./autogen.sh --prefix=/usr \
+    && ./autogen.sh \
+    && ./configure --prefix=/usr \
     && make -j$(nproc) \
     && make install
 
 RUN git clone --depth 1 https://github.com/OpenPrinting/pappl-retrofit.git \
     && cd pappl-retrofit \
-    && ./autogen.sh --prefix=/usr \
+    && ./autogen.sh \
+    && ./configure --prefix=/usr \
     && make -j$(nproc) \
     && make install
 
