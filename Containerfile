@@ -26,6 +26,12 @@ RUN dnf install -y \
 
 WORKDIR /build
 
+RUN git clone --depth 1 https://github.com/OpenPrinting/libcups.git \
+    && cd libcups \
+    && ./configure --prefix=/usr \
+    && make -j$(nproc) \
+    && make install
+
 RUN git clone --depth 1 https://github.com/michaelrsweet/pappl.git \
     && cd pappl \
     && ./configure --prefix=/usr --enable-libusb --with-dnssd=avahi \
