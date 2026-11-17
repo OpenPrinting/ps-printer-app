@@ -1,6 +1,8 @@
 FROM fedora:41 AS builder
 
-RUN dnf install -y \
+RUN dnf install -y 'dnf-command(builddep)' \
+    && dnf --enablerepo=\*source* builddep -y libcupsfilters libppd \
+    && dnf install -y \
     gcc \
     gcc-c++ \
     make \
@@ -16,6 +18,7 @@ RUN dnf install -y \
     libpng-devel \
     libtiff-devel \
     libjxl-devel \
+    libexif-devel \
     libusb1-devel \
     avahi-devel \
     gnutls-devel \
