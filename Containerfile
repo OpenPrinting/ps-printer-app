@@ -7,6 +7,7 @@ RUN dnf install -y \
     autoconf \
     automake \
     libtool \
+    gettext-devel \
     pkgconf-pkg-config \
     git \
     cups-devel \
