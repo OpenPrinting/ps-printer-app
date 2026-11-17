@@ -15,6 +15,7 @@ RUN dnf install -y \
     libjpeg-turbo-devel \
     libpng-devel \
     libtiff-devel \
+    libjxl-devel \
     libusb1-devel \
     avahi-devel \
     gnutls-devel \
