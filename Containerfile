@@ -50,12 +50,6 @@ RUN git clone --depth 1 --recurse-submodules https://github.com/michaelrsweet/pd
     && make -j$(nproc) \
     && make install
 
-RUN git clone --depth 1 --recurse-submodules https://github.com/michaelrsweet/pdfio.git \
-    && cd pdfio \
-    && ./configure --prefix=/usr \
-    && make -j$(nproc) \
-    && make install
-
 RUN git clone --depth 1 https://github.com/OpenPrinting/libcupsfilters.git \
     && cd libcupsfilters \
     && ./autogen.sh \
