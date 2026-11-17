@@ -34,40 +34,40 @@ WORKDIR /build
 
 RUN git clone --depth 1 --recurse-submodules https://github.com/OpenPrinting/libcups.git \
     && cd libcups \
-    && ./configure --prefix=/usr \
+    && ./configure --prefix=/usr --libdir=/usr/lib64 \
     && make -j$(nproc) \
     && make install
 
-RUN git clone --depth 1 https://github.com/michaelrsweet/pappl.git \
+RUN git clone --depth 1 -b v1.4.x https://github.com/michaelrsweet/pappl.git \
     && cd pappl \
-    && ./configure --prefix=/usr --enable-libusb --with-dnssd=avahi \
+    && ./configure --prefix=/usr --libdir=/usr/lib64 --enable-libusb --with-dnssd=avahi \
     && make -j$(nproc) \
     && make install
 
 RUN git clone --depth 1 --recurse-submodules https://github.com/michaelrsweet/pdfio.git \
     && cd pdfio \
-    && ./configure --prefix=/usr \
+    && ./configure --prefix=/usr --libdir=/usr/lib64 \
     && make -j$(nproc) \
     && make install
 
 RUN git clone --depth 1 https://github.com/OpenPrinting/libcupsfilters.git \
     && cd libcupsfilters \
     && ./autogen.sh \
-    && ./configure --prefix=/usr --disable-mutool \
+    && ./configure --prefix=/usr --libdir=/usr/lib64 --disable-mutool \
     && make -j$(nproc) \
     && make install
 
 RUN git clone --depth 1 https://github.com/OpenPrinting/libppd.git \
     && cd libppd \
     && ./autogen.sh \
-    && ./configure --prefix=/usr --disable-mutool \
+    && ./configure --prefix=/usr --libdir=/usr/lib64 --disable-mutool \
     && make -j$(nproc) \
     && make install
 
 RUN git clone --depth 1 https://github.com/OpenPrinting/pappl-retrofit.git \
     && cd pappl-retrofit \
     && ./autogen.sh \
-    && ./configure --prefix=/usr \
+    && ./configure --prefix=/usr --libdir=/usr/lib64 \
     && make -j$(nproc) \
     && make install
 
@@ -83,6 +83,8 @@ RUN microdnf install -y \
     libpng \
     libjpeg-turbo \
     libtiff \
+    libjxl \
+    libexif \
     avahi-libs \
     gnutls \
     qpdf-libs \
@@ -92,11 +94,15 @@ RUN microdnf install -y \
     shadow-utils \
     && microdnf clean all
 
+COPY --from=builder /usr/lib64/libcups3* /usr/lib64/
 COPY --from=builder /usr/lib64/libpappl* /usr/lib64/
+COPY --from=builder /usr/lib64/libpdfio* /usr/lib64/
 COPY --from=builder /usr/lib64/libcupsfilters* /usr/lib64/
 COPY --from=builder /usr/lib64/libppd* /usr/lib64/
 COPY --from=builder /usr/lib64/libpappl-retrofit* /usr/lib64/
 COPY --from=builder /build/rootfs/ /
+
+RUN ldconfig
 
 RUN useradd -r -u 1001 -g lp -d /var/run/ps-printer-app -s /sbin/nologin printer-app \
     && mkdir -p /var/run/ps-printer-app /var/spool/ps-printer-app /var/lib/ps-printer-app \
