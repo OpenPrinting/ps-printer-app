@@ -4,6 +4,7 @@ RUN dnf install -y \
     gcc \
     gcc-c++ \
     make \
+    which \
     autoconf \
     automake \
     libtool \
