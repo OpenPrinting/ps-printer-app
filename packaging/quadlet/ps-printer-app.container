@@ -1,0 +1,24 @@
+[Unit]
+Description=PostScript Printer Application
+Documentation=https://github.com/OpenPrinting/ps-printer-app
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=ghcr.io/openprinting/ps-printer-app:latest
+ContainerName=ps-printer-app
+Network=host
+AddDevice=/dev/bus/usb:/dev/bus/usb:rwm
+Volume=/run/dbus/system_bus_socket:/run/dbus/system_bus_socket:ro
+Volume=ps-printer-app-data:/var/lib/ps-printer-app
+Volume=ps-printer-app-spool:/var/spool/ps-printer-app
+PublishPort=8000:8000
+DropCapability=ALL
+
+[Service]
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=60s
+
+[Install]
+WantedBy=default.target

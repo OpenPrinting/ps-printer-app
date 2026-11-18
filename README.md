@@ -293,6 +293,133 @@ new rules).
 You can edit the `/var/snap/ps-printer-app/common/cups/snmp.conf` file
 for configuring SNMP network printer discovery.
 
+## CLOUD-NATIVE OCI CONTAINER & SYSTEMD QUADLET (RECOMMENDED)
+
+The modern, recommended way to deploy the PostScript Printer Application on immutable Linux distributions (such as Universal Blue / Bluefin, Bazzite, Fedora Silverblue) as well as classic distributions is using standard OCI containers and systemd Quadlets.
+
+### Key Architectural Highlights
+
+- **Universal & Rootless**: Built on a minimal Fedora base (`quay.io/fedora/fedora-minimal:41`), running rootless as an unprivileged user (`1001:lp`).
+- **Host D-Bus Socket Sharing**: Rather than running redundant internal `dbus-daemon` and `avahi-daemon` instances inside the container, the container mounts `/run/dbus/system_bus_socket`. The application communicates directly with the host's Avahi daemon for mDNS/DNS-SD registration without network or daemon collisions.
+- **Declarative Systemd Management**: Integrates natively with Podman Quadlets (`.container` files), allowing systemd to manage container lifecycle, restarts, dependencies, and autostart on boot.
+- **Bleeding-Edge Dependency Stack**: Compiles against upstream `libcups` (3.x), `pappl` (v1.4.x stable branch), `pdfio`, `libcupsfilters`, `libppd`, and `pappl-retrofit`.
+
+---
+
+### Deploying with Systemd Quadlet (Universal Blue / Bluefin / Fedora Silverblue)
+
+Systemd Quadlet is the declarative, systemd-native way to run Podman containers on modern Linux desktops.
+
+#### 1. Install the Quadlet File
+
+Copy the provided Quadlet configuration to your user systemd directory:
+
+```sh
+mkdir -p ~/.config/containers/systemd/
+cp packaging/quadlet/ps-printer-app.container ~/.config/containers/systemd/
+```
+
+*(For a system-wide service across all users, copy to `/etc/containers/systemd/` instead).*
+
+#### 2. Reload and Start the Service
+
+Tell systemd to generate the service and start it:
+
+```sh
+# Reload systemd generator to create the service
+systemctl --user daemon-reload
+
+# Start the Printer Application
+systemctl --user start ps-printer-app
+
+# Check status
+systemctl --user status ps-printer-app
+```
+
+#### 3. Enable Autostart on Boot
+
+To start the container automatically on system login:
+
+```sh
+systemctl --user enable ps-printer-app
+```
+
+---
+
+### Running Directly with Podman or Docker CLI
+
+If you are not using Quadlets, you can build and run the container directly with Podman or Docker:
+
+#### 1. Build the Container Image
+
+```sh
+# Using Podman
+podman build -f Containerfile -t ps-printer-app:latest .
+
+# Using Docker
+docker build -f Containerfile -t ps-printer-app:latest .
+```
+
+#### 2. Run the Container
+
+Create named volumes for persistence:
+
+```sh
+podman volume create ps-printer-app-data
+podman volume create ps-printer-app-spool
+```
+
+Start the container with host network and device access:
+
+```sh
+podman run -d \
+    --name ps-printer-app \
+    --network host \
+    --device /dev/bus/usb:/dev/bus/usb:rwm \
+    -v /run/dbus/system_bus_socket:/run/dbus/system_bus_socket:ro \
+    -v ps-printer-app-data:/var/lib/ps-printer-app \
+    -v ps-printer-app-spool:/var/spool/ps-printer-app \
+    ps-printer-app:latest
+```
+
+*(Replace `podman` with `docker` if using Docker).*
+
+#### Explanation of Flags:
+- `--network host`: Required for discovering network printers via DNS-SD/mDNS and SNMP broadcasts.
+- `--device /dev/bus/usb`: Passes USB printer devices into the container with read/write permissions.
+- `-v /run/dbus/system_bus_socket:...`: Shares the host system D-Bus socket so PAPPL/libcups can register IPP services with host Avahi.
+- `-v ps-printer-app-data:/var/lib/ps-printer-app`: Persists configured printer settings and user-uploaded PPD files across container restarts.
+
+---
+
+### Setting Up Printers & Web Interface
+
+Once running, access the web administration interface at:
+
+```text
+http://localhost:8000/
+```
+
+1. **Auto-Discovered Printers**: Network printers (via DNS-SD) and connected USB printers will be discovered automatically. Click **Add Printer** to set up a queue.
+2. **Adding Custom PPD Files**:
+   - In the web interface, go to the **Add PPD files** section to upload manufacturer PPDs directly through your browser.
+   - Uploaded PPDs are stored in `/var/lib/ps-printer-app/ppd/` inside the container and persisted across restarts via the `ps-printer-app-data` volume.
+3. **Mounting Existing Host PPD Directories**:
+   You can also mount an existing collection of PPD files into the container by adding a bind mount:
+   ```sh
+   -v /path/to/my/ppds:/usr/share/ppd/custom:ro
+   ```
+
+---
+
+### Notes for Developers & Maintainers
+
+- **PAPPL Version Compatibility**: The container builds against `https://github.com/michaelrsweet/pappl.git` tracking branch `v1.4.x`. `pappl-retrofit` officially targets the stable PAPPL 1.4.x ABI. When PAPPL 2.0.x reaches its first stable release and `pappl-retrofit` callback signatures are aligned upstream, the container will switch to tracking PAPPL 2.x.
+- **Dual CUPS Compatibility**: `ps-printer-app.c` maintains dual compatibility across CUPS versions using preprocessor macros (`#if CUPS_VERSION_MAJOR >= 3`). This ensures that the application compiles cleanly against both `libcups3` (used in this OCI container) and `libcups2` (used in existing Snapcraft builds).
+- **Smoke Testing in CI**: The `.github/workflows/oci-container.yml` workflow builds the multi-stage image using Docker Buildx and executes an automated smoke test verifying HTTP `200 OK` on port 8000.
+
+---
+
 ## THE ROCK (OCI CONTAINER IMAGE)
 
 ### Install from DockerHub
