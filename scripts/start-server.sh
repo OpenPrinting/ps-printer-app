@@ -20,5 +20,8 @@ while true; do
     sleep 1
 done
 
+# Directory for PPD files added via the web interface
+mkdir -p /var/lib/ps-printer-app/ppd
+
 # Start the ps-printer-app server
 ps-printer-app -o log-file="/ps-printer-app.log" ${PORT:+-o server-port="$PORT"} server
