@@ -321,6 +321,9 @@ cp packaging/quadlet/ps-printer-app.container ~/.config/containers/systemd/
 
 *(For a system-wide service across all users, copy to `/etc/containers/systemd/` instead).*
 
+> [!NOTE]
+> **Image reference:** The Quadlet file defaults to `Image=ghcr.io/openprinting/ps-printer-app:latest`. If you built the container image locally with the tag `ps-printer-app:latest`, update the `Image=` line in `~/.config/containers/systemd/ps-printer-app.container` to `Image=localhost/ps-printer-app:latest` (or `ps-printer-app:latest`).
+
 #### 2. Reload and Start the Service
 
 Tell systemd to generate the service and start it:
@@ -375,6 +378,7 @@ Start the container with host network and device access:
 podman run -d \
     --name ps-printer-app \
     --network host \
+    --cap-drop=ALL \
     --device /dev/bus/usb:/dev/bus/usb:rwm \
     -v /run/dbus/system_bus_socket:/run/dbus/system_bus_socket:ro \
     -v ps-printer-app-data:/var/lib/ps-printer-app \
@@ -386,9 +390,16 @@ podman run -d \
 
 #### Explanation of Flags:
 - `--network host`: Required for discovering network printers via DNS-SD/mDNS and SNMP broadcasts.
+- `--cap-drop=ALL`: Drops all unnecessary Linux capabilities, ensuring the container runs strictly with least privilege as unprivileged user `1001:lp`.
 - `--device /dev/bus/usb`: Passes USB printer devices into the container with read/write permissions.
 - `-v /run/dbus/system_bus_socket:...`: Shares the host system D-Bus socket so PAPPL/libcups can register IPP services with host Avahi.
 - `-v ps-printer-app-data:/var/lib/ps-printer-app`: Persists configured printer settings and user-uploaded PPD files across container restarts.
+- `-v ps-printer-app-spool:/var/spool/ps-printer-app`: Persists print queue spool files across container restarts.
+
+> [!TIP]
+> **Host D-Bus and AppArmor (Ubuntu / Debian / Linux Mint with Docker):**
+> On distributions using AppArmor (such as Ubuntu, Debian, or Linux Mint), Docker's default AppArmor profile (`docker-default`) restricts container access to the host D-Bus socket (`/run/dbus/system_bus_socket`), which can prevent Avahi DNS-SD service registration.
+> If testing on Ubuntu or Linux Mint with Docker, pass `--security-opt apparmor=unconfined` to permit D-Bus communication, or use **Podman** (which runs rootless and integrates smoothly with SELinux/host sockets on immutable systems like Universal Blue / Bluefin and Fedora Silverblue).
 
 ---
 

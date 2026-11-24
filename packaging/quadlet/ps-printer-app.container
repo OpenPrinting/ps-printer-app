@@ -12,7 +12,6 @@ AddDevice=/dev/bus/usb:/dev/bus/usb:rwm
 Volume=/run/dbus/system_bus_socket:/run/dbus/system_bus_socket:ro
 Volume=ps-printer-app-data:/var/lib/ps-printer-app
 Volume=ps-printer-app-spool:/var/spool/ps-printer-app
-PublishPort=8000:8000
 DropCapability=ALL
 
 [Service]
