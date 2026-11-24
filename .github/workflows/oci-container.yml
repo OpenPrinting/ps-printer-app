@@ -1,0 +1,41 @@
+name: OCI Container Build and Smoke Test
+
+on:
+  push:
+    branches:
+      - feature/cloud-native-oci
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build OCI Image & Smoke Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build OCI Container Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Containerfile
+          tags: ps-printer-app:test
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke Test OCI Container
+        run: |
+          docker run -d --name ps-test -p 8000:8000 ps-printer-app:test
+          sleep 5
+          docker logs ps-test
+          curl -f -s -I http://localhost:8000/ || exit 1
+          docker stop ps-test
