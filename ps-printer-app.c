@@ -111,12 +111,20 @@ main(int  argc,				// I - Number of command-line arguments
   int          ret;
 
   // Array of spooling conversions, most desirables first
+#if CUPS_VERSION_MAJOR >= 3
   spooling_conversions = cupsArrayNew(NULL, NULL, NULL, 0, NULL, NULL);
+#else
+  spooling_conversions = cupsArrayNew(NULL, NULL);
+#endif
   cupsArrayAdd(spooling_conversions, (void *)&PR_CONVERT_PS_TO_PS);
   cupsArrayAdd(spooling_conversions, (void *)&PR_CONVERT_PDF_TO_PS);
 
   // Array of stream formats, most desirables first
+#if CUPS_VERSION_MAJOR >= 3
   stream_formats = cupsArrayNew(NULL, NULL, NULL, 0, NULL, NULL);
+#else
+  stream_formats = cupsArrayNew(NULL, NULL);
+#endif
   cupsArrayAdd(stream_formats, (void *)&PR_STREAM_POSTSCRIPT);
 
   // Configuration record of the PostScript Printer Application
