@@ -398,8 +398,8 @@ podman run -d \
 
 > [!TIP]
 > **Host D-Bus and AppArmor (Ubuntu / Debian / Linux Mint with Docker):**
-> On distributions using AppArmor (such as Ubuntu, Debian, or Linux Mint), Docker's default AppArmor profile (`docker-default`) restricts container access to the host D-Bus socket (`/run/dbus/system_bus_socket`), which can prevent Avahi DNS-SD service registration.
-> If testing on Ubuntu or Linux Mint with Docker, pass `--security-opt apparmor=unconfined` to permit D-Bus communication, or use **Podman** (which runs rootless and integrates smoothly with SELinux/host sockets on immutable systems like Universal Blue / Bluefin and Fedora Silverblue).
+> On distributions using AppArmor (such as Ubuntu, Debian, or Linux Mint), Docker's default AppArmor profile (`docker-default`) restricts container access to the host D-Bus socket (`/run/dbus/system_bus_socket`), and the host D-Bus daemon will reject unmapped container UIDs (`1001`).
+> If testing on Ubuntu or Linux Mint with rootful Docker, pass `--security-opt apparmor=unconfined --user $(id -u):$(id -g)` so the container authenticates as your host user, or use **Podman** (which handles user namespaces rootlessly out-of-the-box on immutable systems like Universal Blue / Bluefin and Fedora Silverblue).
 
 ---
 
